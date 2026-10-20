@@ -5,6 +5,7 @@ import { unlockSpeech } from './audio/speech.ts';
 import { unlockAudio } from './audio/tones.ts';
 import { byId } from './dom.ts';
 import { initScanInputs } from './scan/scan.ts';
+import { initVoicePanel } from './voice/panel.ts';
 
 // VoiceOver-Doppeltippen löst nicht immer `pointerdown` aus, aber immer `click`.
 const unlockEvents = ['pointerdown', 'touchend', 'click', 'keydown'] as const;
@@ -28,6 +29,7 @@ function main(): void {
   setupAudioUnlock();
   initScanInputs();
   startApp();
+  initVoicePanel();
 
   registerSW({
     immediate: true,

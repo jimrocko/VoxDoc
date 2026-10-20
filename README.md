@@ -19,6 +19,8 @@ den Text erkennen und vorlesen.
   („weiterlesen ab Absatz 3 von 8“); siehe [Dokumentverwaltung](#dokumentverwaltung-und-datenhaltung).
 - **Weiterlesen** – die Leseposition wird gespeichert; beim erneuten Öffnen geht es dort weiter.
 - **Datensicherung** – alle Dokumente als Datei exportieren und wiederherstellen, ohne Cloud.
+- **Sprachbefehle** – gesprochen (Safari) oder getippt/diktiert (überall), siehe [Sprachsteuerung](#sprachsteuerung).
+- **PDF-Export** – Fotos und Text eines Dokuments als PDF mit durchsuchbarem Text.
 - **Dokument** – Vorlesen, Text bearbeiten/diktieren, Umbenennen, Teilen (iOS-Teilen-Menü), Löschen.
 - **Vorlesen** – Pause und Fortsetzen am zuletzt gesprochenen Wort, vorheriger/nächster Absatz,
   Absatz wiederholen, Tempo ändern während des Vorlesens (siehe [Vorlesefunktion](#vorlesefunktion)).
@@ -97,6 +99,9 @@ Anschließend in Safari über „Teilen“ → „Zum Home-Bildschirm“ install
 │   ├── views/              Ansichten: Start, Scanner, Bibliothek, Dokument, Suche, Einstellungen, Hilfe;
 │   │                       reader-panel.ts = Bedienfeld fürs Vorlesen
 │   ├── reader/             Vorlese-Logik (reader.ts) und Text-Aufteilung (text.ts)
+│   ├── voice/              Sprachbefehle: Parser (commands.ts), Spracherkennung (recognition.ts),
+│   │                       Ausführung (controller.ts), Befehlsfenster (panel.ts)
+│   ├── export/             PDF-Erzeuger ohne Fremdbibliothek (pdf.ts) und Dokument-Export (export.ts)
 │   ├── ocr/                Texterkennung: Dateien laden/cachen (assets.ts), Tesseract-Worker (engine.ts),
 │   │                       Warteschlange und Ansagen (service.ts), Textaufbereitung (format.ts), Fehler (errors.ts)
 │   ├── scan/               Scanner: Kamera (camera.ts), Bildanalyse (analyze.ts), Sprachführung
@@ -244,6 +249,83 @@ chromium --use-fake-device-for-media-stream --use-fake-ui-for-media-stream \
 
 Damit lassen sich Szenen wie „Blatt ragt links heraus“, „Blatt liegt ruhig“ oder „Blatt entfernt“
 reproduzierbar durchspielen. `--deny-permission-prompts` simuliert einen abgelehnten Kamerazugriff.
+
+## Sprachsteuerung
+
+### Was iOS Safari tatsächlich kann
+
+| Umgebung | Spracherkennung für Webseiten | Quelle |
+| --- | --- | --- |
+| Safari (Tab), iOS 14.5+ | ja, als `webkitSpeechRecognition`; nutzt die Diktierfunktion von Apple | Safari 14.1/iOS 14.5 |
+| Web-App auf dem Home-Bildschirm | **nein** („not available in SafariViewController and web apps added to Home Screen“) | [WebKit-Bug 225298](https://bugs.webkit.org/show_bug.cgi?id=225298), Status „RESOLVED LATER“ |
+| Andere Browser auf iOS (WKWebView) | in der Regel nein | [Chromium-Issue 40836681](https://issues.chromium.org/issues/40836681) |
+
+Ob die Erkennung im Home-Bildschirm-Modus fehlt, lässt sich per Feature-Erkennung nicht feststellen
+(der Konstruktor kann existieren). VoxDoc schließt diesen Modus auf iOS deshalb ausdrücklich aus und
+bietet dort keine Spracherkennung an.
+
+### Umsetzung
+
+- Knopf **„Befehl“** unten rechts (sichtbar beschriftet) öffnet ein modales Befehlsfenster (`<dialog>`).
+- **Sprechen** (nur wo verfügbar): Beim ersten Mal erklärt VoxDoc, dass Safari die Diktierfunktion von Apple
+  nutzt und die Aufnahme je nach iPhone bei Apple ausgewertet werden kann; erst nach „Spracherkennung
+  erlauben und sprechen“ wird zugehört (Einstellung `voiceRecognition`, standardmäßig aus). Danach fragt iOS
+  nach Mikrofon bzw. Spracherkennung. Zugehört wird jeweils für **einen** Befehl (`continuous: false`,
+  `lang: 'de-DE'`, 5 Alternativen), mit 10 Sekunden Zeitlimit.
+- Während des Zuhörens: keine VoiceOver-Ansage (das Mikrofon würde sie aufnehmen), nur ein Ton und
+  sichtbarer Text; das Vorlesen hält an und läuft weiter, wenn kein Befehl verstanden wurde.
+- **Befehlsfeld** (überall, auch ohne Spracherkennung): Befehl tippen oder mit der Diktiertaste der
+  iOS-Tastatur einsprechen; derselbe Parser wie für gesprochene Befehle.
+- **iOS-Sprachsteuerung** (Bedienungshilfen) als systemweite Alternative: Alle Knöpfe haben sichtbare
+  Beschriftungen, die dem Sprachbefehl entsprechen („Tippe auf Vorlesen“, „Tippe auf Nächste Seite“).
+- Fehler werden angesagt: Zugriff verweigert (`not-allowed`), Dienst nicht erlaubt (`service-not-allowed`),
+  keine Verbindung, nichts gehört, kein Mikrofon, Sprache nicht unterstützt, Zeitüberschreitung, unbekannter
+  Befehl.
+
+### Befehle
+
+| Befehl (Beispiele) | Wirkung | Alternative ohne Sprache |
+| --- | --- | --- |
+| „Dokument scannen“ | öffnet den Scanner | Knopf „Dokument scannen“ |
+| „Aufnehmen“ | nimmt im Scanner eine Seite auf (nur mit Live-Kamera) | Auslöser-Knopf |
+| „Speichern“ | Scanner: Dokument speichern; Dokument: offenes Formular speichern, sonst Hinweis „bereits gespeichert“ | Knopf „Dokument speichern“ |
+| „Vorlesen“, „Pause“, „Weiterlesen“, „Von vorn“, „Stopp“ | Vorlesen steuern | Knöpfe im Bereich „Vorlesen“ |
+| „Nächste Seite“, „Vorherige Seite“ | zum Anfang der nächsten/vorherigen Seite springen | Knöpfe „Nächste/Vorherige Seite“ |
+| „Nächster/Vorheriger Absatz“, „Wiederholen“, „Schneller“, „Langsamer“ | wie die Knöpfe | Knöpfe im Bereich „Vorlesen“ |
+| „Suche nach …“ | Suche mit Begriff öffnen, Treffer ansagen | Tab „Suche“ |
+| „Als PDF exportieren“ | PDF des geöffneten Dokuments | Knopf „Als PDF exportieren“ |
+| „Hilfe“, „Start“, „Bibliothek“, „Einstellungen“, „Was kann ich sagen?“ | Navigation bzw. Befehlsliste | Tab-Leiste |
+
+Geht ein Befehl an der aktuellen Stelle nicht, sagt VoxDoc das und warum (z. B. „Als PDF exportieren“ ohne
+geöffnetes Dokument, „Aufnehmen“ ohne Live-Kamera, „Vorlesen“ ohne Text).
+
+**„Nächste Seite“** setzt voraus, dass der Lesetext unverändert aus der Texterkennung stammt – nur dann ist
+bekannt, welcher Absatz zu welcher Seite gehört. Sonst nennt VoxDoc den Grund und verweist auf „Nächster Absatz“.
+
+### PDF-Export
+
+Eigener, kleiner PDF-Erzeuger (`src/export/pdf.ts`, ohne Abhängigkeit): jedes Foto als eigene A4-Seite (JPEG,
+vorher neu gezeichnet, damit die Ausrichtung stimmt), danach der Lesetext als echter Text in Helvetica mit
+WinAnsi-Kodierung (Umlaute, ß, „“, –, €). Zeichen außerhalb davon werden durch „?“ ersetzt, und VoxDoc sagt
+an, wie viele. Titel und Sprache (`/Lang de-DE`) stehen in den Metadaten. Getestet mit `pdfinfo` und
+`pdftotext`: Seitenzahl stimmt, Text mit Umlauten ist extrahierbar.
+
+Safari erlaubt Teilen und Herunterladen nur kurz nach einem Tippen. Kommt der Export per Sprachbefehl, ist
+diese Erlaubnis meist abgelaufen: VoxDoc meldet dann „PDF … ist fertig. Tippe auf ‚PDF speichern‘“ und zeigt
+diesen Knopf, statt einen Erfolg zu behaupten. Dasselbe gilt für die Datensicherung.
+
+### Einschränkungen
+
+- **Nicht auf einem echten iPhone getestet.** Die Spracherkennung wurde im Browser-Test durch eine Nachbildung
+  ersetzt; geprüft sind Parser, Fehlerbehandlung und alle Befehle. Die echte Chromium-Erkennung lehnte im
+  Test mit `not-allowed` ab – VoxDoc zeigte die passende Meldung. Wie zuverlässig Apples Erkennung deutsche
+  Befehle versteht, ist nicht gemessen.
+- In der **installierten App** gibt es keine Spracherkennung (Einschränkung von iOS) – nur Befehlsfeld und
+  iOS-Sprachsteuerung.
+- Kein Dauerzuhören und kein Aktivierungswort: Jeder Befehl beginnt mit einem Tippen auf „Befehl“ bzw.
+  „Sprechen“ (iOS verlangt dafür eine Benutzeraktion).
+- Das PDF ist nicht getaggt (kein PDF/UA); es enthält aber echten, durchsuchbaren Text.
+- Mit VoiceOver kann die Ansage eines Knopfs kurz vor dem Zuhören noch hörbar sein und mit aufgenommen werden.
 
 ## Dokumentverwaltung und Datenhaltung
 

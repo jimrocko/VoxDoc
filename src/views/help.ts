@@ -92,6 +92,28 @@ export function helpView(): View {
         ),
       ),
       section(
+        'help-voice',
+        'Sprachbefehle',
+        list(
+          'Tippe unten rechts auf „Befehl“. Im Fenster kannst du einen Befehl sprechen oder in das Befehlsfeld tippen. Mit der Diktiertaste der Tastatur kannst du ihn auch dort einsprechen.',
+          '„Sprechen“ gibt es nur, wenn VoxDoc in Safari geöffnet ist. In der auf dem Home-Bildschirm installierten App erlaubt iOS Webseiten keine Spracherkennung – dort funktionieren das Befehlsfeld und die iOS-Sprachsteuerung.',
+          'Beim ersten Mal fragt VoxDoc, ob du die Spracherkennung von Safari nutzen möchtest, und danach fragt iOS nach dem Mikrofon. Safari nutzt dafür die Diktierfunktion von Apple; VoxDoc speichert keine Aufnahmen.',
+          'Während VoxDoc zuhört, hörst du einen kurzen Ton; es gibt dann bewusst keine Ansage, damit das Mikrofon VoiceOver nicht mithört. Das Vorlesen hält währenddessen an.',
+          'Befehle sind zum Beispiel „Dokument scannen“, „Aufnehmen“, „Speichern“, „Vorlesen“, „Pause“, „Weiterlesen“, „Nächste Seite“, „Suche nach Stromrechnung“, „Als PDF exportieren“ und „Hilfe“. Die vollständige Liste steht im Befehlsfenster unter „Was kann ich sagen?“.',
+          'Geht ein Befehl an der aktuellen Stelle nicht, sagt VoxDoc dir warum – zum Beispiel, dass „Als PDF exportieren“ ein geöffnetes Dokument braucht.',
+          'Die iOS-Sprachsteuerung (Einstellungen › Bedienungshilfen › Sprachsteuerung) funktioniert immer: Sage „Tippe auf“ und den Namen eines Knopfs, etwa „Tippe auf Vorlesen“ oder „Tippe auf Nächste Seite“.',
+        ),
+      ),
+      section(
+        'help-pdf',
+        'Als PDF exportieren',
+        list(
+          'Im Dokument unter „Bearbeiten“ erstellt „Als PDF exportieren“ ein PDF mit allen Fotos in der gespeicherten Reihenfolge und danach dem Text als durchsuchbarem Text.',
+          'Danach öffnet sich das Teilen-Menü, zum Beispiel für „In Dateien sichern“. Kommt der Befehl per Sprache, verlangt Safari zum Speichern ein Tippen – dann erscheint der Knopf „PDF speichern“.',
+          'Der Text im PDF ist echter Text: Er lässt sich durchsuchen und kopieren. Das PDF ist aber nicht für Screenreader ausgezeichnet (keine Tags).',
+        ),
+      ),
+      section(
         'help-find',
         'Dokumente wiederfinden',
         list(

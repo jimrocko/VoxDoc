@@ -4,12 +4,22 @@ import { countLabel } from '../format.ts';
 import { searchDocuments } from '../search.ts';
 import { listDocuments } from '../storage/documents.ts';
 import { listPositions } from '../storage/positions.ts';
+import { setVoiceContext } from '../voice/controller.ts';
 import { documentList, viewHeader, type View } from './components.ts';
 
 const ANNOUNCE_DELAY_MS = 700;
 
 /** Bleibt beim Wechsel zwischen den Tabs erhalten. */
 let lastQuery = '';
+let presetAnnounce = false;
+
+/** Suchbegriff für die nächste Anzeige der Suche (z. B. aus „Suche nach …“). */
+export function presetSearchQuery(query: string): void {
+  if (query) {
+    lastQuery = query;
+    presetAnnounce = true;
+  }
+}
 
 export async function searchView(): Promise<View> {
   const [documents, positions] = await Promise.all([listDocuments(), listPositions().catch(() => new Map())]);
@@ -83,11 +93,31 @@ export async function searchView(): Promise<View> {
     input,
   );
 
-  update(false);
+  // Gesprochener Suchbegriff: Ergebnis gleich ansagen.
+  update(presetAnnounce);
+  presetAnnounce = false;
+
+  const unregister = setVoiceContext({
+    handle: (command) => {
+      if (command.type !== 'search') {
+        return false;
+      }
+      if (command.query) {
+        input.value = command.query;
+        update(true);
+      } else {
+        input.focus();
+      }
+      return true;
+    },
+  });
 
   return {
     title: 'Suche',
     element: h('div', { class: 'view' }, viewHeader('Suche'), form, summary, results),
-    destroy: () => window.clearTimeout(announceTimer),
+    destroy: () => {
+      window.clearTimeout(announceTimer);
+      unregister();
+    },
   };
 }

@@ -212,6 +212,17 @@ export class Reader {
 
   // ---------- intern ----------
 
+  /** Springt zu einem Absatz und sagt dabei `announcement` an (z. B. „Seite 2 von 3.“). */
+  goToParagraph(paragraph: number, announcement: string): void {
+    if (paragraph < 0 || paragraph >= this.chunks.length) {
+      return;
+    }
+    this.moveTo(paragraph);
+    this.reportPosition();
+    this.retried = false;
+    this.speakCurrent(announcement);
+  }
+
   private jumpTo(paragraph: number): void {
     if (this.chunks.length === 0) {
       return;

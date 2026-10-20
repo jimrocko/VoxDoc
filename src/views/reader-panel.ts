@@ -4,6 +4,8 @@ import { h } from '../dom.ts';
 import { status } from '../feedback.ts';
 import { Reader, rateLabel, type ReaderPosition, type ReaderSnapshot } from '../reader/reader.ts';
 import { getSettings, updateSettings } from '../storage/settings.ts';
+import type { PageMap } from '../reader/pages.ts';
+import type { VoiceCommand } from '../voice/commands.ts';
 import { section } from './components.ts';
 
 const RATE_STEP = 0.1;
@@ -11,7 +13,14 @@ const RATE_STEP = 0.1;
 export interface ReaderPanel {
   element: HTMLElement;
   destroy: () => void;
+  /** Führt einen Vorlese-Befehl aus (Sprachsteuerung/Befehlsfeld); `false`, wenn er nicht dazugehört. */
+  handle?: (command: VoiceCommand) => boolean;
+  /** Vorlesen still anhalten, z. B. bevor das Mikrofon zuhört. */
+  pauseQuietly?: () => void;
+  /** Nach erfolglosem Zuhören dort weiterlesen, wo für das Zuhören angehalten wurde. */
+  resumeIfInterrupted?: () => void;
 }
+
 
 const toggleLabels: Record<ReaderSnapshot['state'], string> = {
   idle: 'Vorlesen',
@@ -71,6 +80,7 @@ export function readerPanel(
   texts: readonly string[],
   paragraphElements: readonly HTMLElement[],
   saved: SavedPosition = { position: null, save: () => {} },
+  pageMap: PageMap | null = null,
 ): ReaderPanel {
   if (!speechSupported) {
     return {
@@ -108,6 +118,38 @@ export function readerPanel(
 
   let finishedBefore = saved.position?.finished ?? false;
   const restartButton = h('button', { type: 'button', class: 'button button-secondary', hidden: true }, 'Von vorn vorlesen');
+
+  const pages = pageMap && pageMap.starts.length > 1 ? pageMap.starts : null;
+  const currentPageIndex = (): number => {
+    const paragraph = reader.snapshot.paragraph;
+    let index = 0;
+    pages?.forEach((start, i) => {
+      if (start.paragraph <= paragraph) {
+        index = i;
+      }
+    });
+    return index;
+  };
+  const goToPage = (direction: 1 | -1): void => {
+    if (!pages) {
+      const fallback =
+        pageMap && pageMap.totalPages > 1
+          ? 'Nur eine Seite dieses Dokuments enthält Text. Nutze „Nächster Absatz“.'
+          : 'Dieses Dokument hat nur eine Seite. Nutze „Nächster Absatz“.';
+      status(pageMap?.unavailable ?? fallback, 'error');
+      return;
+    }
+    const target = pages[currentPageIndex() + direction];
+    if (!target) {
+      if (reader.snapshot.state === 'playing') {
+        toneOnly();
+      } else {
+        status(direction > 0 ? 'Das ist die letzte Seite.' : 'Das ist die erste Seite.', 'error');
+      }
+      return;
+    }
+    reader.goToParagraph(target.paragraph, `Seite ${target.page} von ${pageMap!.totalPages}.`);
+  };
 
   const reader = new Reader(texts, {
     synth: window.speechSynthesis,
@@ -211,6 +253,14 @@ export function readerPanel(
         navButton('Absatz wiederholen', icons.repeat, () => reader.repeat()),
         navButton('Nächster Absatz', icons.next, () => reader.next()),
       ),
+      pages
+        ? h(
+            'div',
+            { class: 'reader-row reader-pages', role: 'group', 'aria-label': 'Seiten' },
+            navButton('Vorherige Seite', icons.previous, () => goToPage(-1)),
+            navButton('Nächste Seite', icons.next, () => goToPage(1)),
+          )
+        : null,
       h(
         'div',
         { class: 'reader-rate', role: 'group', 'aria-label': 'Sprechtempo' },
@@ -236,8 +286,83 @@ export function readerPanel(
     ),
   );
 
+  // Nur fürs Zuhören angehalten? Dann zählt es für Befehle weiter als „liest gerade“.
+  let pausedForListening = false;
+
+  const handle = (command: VoiceCommand): boolean => {
+    const interrupted = pausedForListening;
+    pausedForListening = false;
+    const { resumable } = reader.snapshot;
+    const state = interrupted ? 'playing' : reader.snapshot.state;
+    switch (command.type) {
+      case 'read':
+      case 'resume':
+        if (state !== 'playing') {
+          reader.play();
+        }
+        return true;
+      case 'pause':
+        if (state === 'playing') {
+          reader.pause();
+          status(statusText(reader.snapshot));
+        } else {
+          status('Es wird gerade nicht vorgelesen.');
+        }
+        return true;
+      case 'stop':
+        if (state === 'idle' && !resumable) {
+          status('Es wird gerade nicht vorgelesen.');
+        } else {
+          reader.stop();
+          status('Vorlesen beendet.');
+        }
+        return true;
+      case 'restart':
+        reader.restart();
+        return true;
+      case 'nextParagraph':
+        reader.next();
+        return true;
+      case 'previousParagraph':
+        reader.previous();
+        return true;
+      case 'repeat':
+        reader.repeat();
+        return true;
+      case 'faster':
+      case 'slower':
+        // Erst weiterlesen, damit die Vorlesestimme das neue Tempo selbst ansagt.
+        if (interrupted) {
+          reader.play();
+        }
+        changeRate(command.type === 'faster' ? 1 : -1);
+        return true;
+      case 'nextPage':
+        goToPage(1);
+        return true;
+      case 'previousPage':
+        goToPage(-1);
+        return true;
+      default:
+        return false;
+    }
+  };
+
   return {
     element,
+    handle,
+    pauseQuietly: () => {
+      if (reader.snapshot.state === 'playing') {
+        reader.pause();
+        pausedForListening = true;
+      }
+    },
+    resumeIfInterrupted: () => {
+      if (pausedForListening) {
+        pausedForListening = false;
+        reader.play();
+      }
+    },
     destroy: () => {
       document.removeEventListener('visibilitychange', onVisibility);
       reader.destroy();

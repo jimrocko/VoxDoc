@@ -17,6 +17,8 @@ export interface Settings {
   autoCapture: boolean;
   /** Nach dem Scannen automatisch Text erkennen. */
   autoOcr: boolean;
+  /** Spracherkennung von Safari für Sprachbefehle nutzen (Zustimmung nötig, siehe Befehlsfenster). */
+  voiceRecognition: boolean;
   librarySort: LibrarySort;
 }
 
@@ -32,6 +34,7 @@ export const defaults: Settings = {
   announceParagraphs: true,
   autoCapture: true,
   autoOcr: true,
+  voiceRecognition: false,
   librarySort: 'newest',
 };
 
@@ -57,6 +60,7 @@ export function sanitize(raw: unknown): Settings {
       typeof input.announceParagraphs === 'boolean' ? input.announceParagraphs : defaults.announceParagraphs,
     autoCapture: typeof input.autoCapture === 'boolean' ? input.autoCapture : defaults.autoCapture,
     autoOcr: typeof input.autoOcr === 'boolean' ? input.autoOcr : defaults.autoOcr,
+    voiceRecognition: typeof input.voiceRecognition === 'boolean' ? input.voiceRecognition : defaults.voiceRecognition,
     librarySort: oneOf(input.librarySort, ['newest', 'oldest', 'title'], defaults.librarySort),
   };
 }

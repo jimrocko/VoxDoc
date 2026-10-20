@@ -17,6 +17,9 @@ import { classifyOcrError, DOWNLOAD_MB, ocrErrorMessages } from '../ocr/errors.t
 import { backupFileName, createBackup, restoreBackup } from '../storage/backup.ts';
 import { storageErrorMessage } from '../storage/errors.ts';
 import { checkStorageHealth, EVICTION_HINT } from '../storage/health.ts';
+import { createDelivery } from './delivery.ts';
+import { voiceAvailability } from '../voice/recognition.ts';
+import { PRIVACY_NOTE, VOICE_CONTROL_HINT } from '../voice/panel.ts';
 import { section, viewHeader, type View } from './components.ts';
 
 const themeLabels: Record<Theme, string> = {
@@ -247,6 +250,28 @@ async function ocrSection(): Promise<{ element: HTMLElement; destroy: () => void
   };
 }
 
+function voiceSection(): HTMLElement {
+  const availability = voiceAvailability();
+  return section(
+    'voice-settings-heading',
+    'Sprachbefehle',
+    h('p', { class: 'hint' }, 'Befehle gibst du über den Knopf „Befehl“ unten rechts – gesprochen oder getippt.'),
+    availability.available
+      ? toggle(
+          'voice-recognition-toggle',
+          'Spracherkennung von Safari verwenden',
+          PRIVACY_NOTE,
+          getSettings().voiceRecognition,
+          (voiceRecognition) => {
+            updateSettings({ voiceRecognition });
+            status(voiceRecognition ? 'Spracherkennung an.' : 'Spracherkennung aus. Das Befehlsfeld bleibt verfügbar.');
+          },
+        )
+      : h('p', null, availability.message),
+    h('p', { class: 'hint' }, VOICE_CONTROL_HINT),
+  );
+}
+
 function themeSection(): HTMLElement {
   const current = getSettings().theme;
   return section(
@@ -336,58 +361,43 @@ async function storageSection(): Promise<HTMLElement> {
   );
 }
 
-/** Übergibt eine Datei an das Teilen-Menü (z. B. „In Dateien sichern“) oder lädt sie herunter. */
-async function offerFile(blob: Blob, name: string): Promise<'shared' | 'downloaded' | 'cancelled'> {
-  const file = new File([blob], name, { type: blob.type });
-  if (typeof navigator.share === 'function' && navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: name });
-      return 'shared';
-    } catch (error) {
-      if ((error as DOMException).name === 'AbortError') {
-        return 'cancelled';
-      }
-      // Teilen nicht möglich – auf Herunterladen ausweichen.
-    }
-  }
-  const url = URL.createObjectURL(file);
-  const link = h('a', { href: url, download: name, hidden: true });
-  document.body.append(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  return 'downloaded';
-}
-
 function backupSection(): HTMLElement {
   const exportButton = h('button', { type: 'button', class: 'button button-secondary' }, 'Sicherung erstellen');
   const importButton = h('button', { type: 'button', class: 'button button-secondary' }, 'Sicherung wiederherstellen');
   const input = h('input', { type: 'file', accept: 'application/json,.json', hidden: true, tabindex: '-1', 'aria-hidden': 'true' });
 
+  let what = '';
+  const delivery = createDelivery('Sicherung speichern', (result, name) => {
+    if (result === 'needsTap') {
+      status(`${what} ist fertig. Tippe auf „Sicherung speichern“, um sie abzulegen.`);
+    } else if (result === 'cancelled') {
+      status(`${what} wurde nicht gespeichert.`);
+    } else if (result === 'downloaded') {
+      status(`${what} heruntergeladen als „${name}“. Du findest sie in der Dateien-App unter Downloads.`, 'success');
+    } else {
+      status(`${what} weitergegeben.`, 'success');
+    }
+  });
+
   exportButton.addEventListener('click', async () => {
     exportButton.disabled = true;
     status('Sicherung wird erstellt …');
+    let result = null;
     try {
       const { blob, count } = await createBackup();
       if (count === 0) {
         status('Es gibt noch keine Dokumente zum Sichern.');
         return;
       }
-      const name = backupFileName();
-      const result = await offerFile(blob, name);
-      const what = `Sicherung mit ${countLabel(count, 'Dokument', 'Dokumenten')} (${megabytes(blob.size)})`;
-      if (result === 'cancelled') {
-        status(`${what} wurde nicht gespeichert.`);
-      } else if (result === 'downloaded') {
-        status(`${what} heruntergeladen als „${name}“. Du findest sie in der Dateien-App unter Downloads.`, 'success');
-      } else {
-        status(`${what} weitergegeben.`, 'success');
-      }
+      what = `Sicherung mit ${countLabel(count, 'Dokument', 'Dokumenten')} (${megabytes(blob.size)})`;
+      result = await delivery.deliver(blob, backupFileName());
     } catch (error) {
       status(`Die Sicherung konnte nicht erstellt werden. ${storageErrorMessage(error)}`, 'error');
     } finally {
       exportButton.disabled = false;
-      exportButton.focus();
+      if (result !== 'needsTap') {
+        exportButton.focus();
+      }
     }
   });
 
@@ -421,7 +431,7 @@ function backupSection(): HTMLElement {
       { class: 'hint' },
       'Speichert alle Dokumente mit Fotos, Text und Leseposition in einer Datei. Du entscheidest selbst, wo sie abgelegt wird, zum Beispiel in der Dateien-App. VoxDoc überträgt nichts automatisch.',
     ),
-    h('div', { class: 'button-stack' }, exportButton, importButton),
+    h('div', { class: 'button-stack' }, exportButton, delivery.button, importButton),
     h('p', { class: 'hint' }, 'Beim Wiederherstellen werden nur fehlende Dokumente ergänzt; vorhandene bleiben unverändert.'),
     input,
   );
@@ -455,6 +465,7 @@ export async function settingsView(): Promise<View> {
       feedbackSection(),
       scannerSection(),
       ocr.element,
+      voiceSection(),
       themeSection(),
       await storageSection(),
       backupSection(),

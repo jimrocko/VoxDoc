@@ -19,6 +19,7 @@ import {
   setPersistErrorHandler,
 } from '../scan/session.ts';
 import { storageErrorMessage } from '../storage/errors.ts';
+import { setVoiceContext } from '../voice/controller.ts';
 import { getSettings, updateSettings } from '../storage/settings.ts';
 import { section, viewHeader, type View } from './components.ts';
 
@@ -414,6 +415,28 @@ export function scannerView(): View {
       label,
     );
 
+  const unregisterVoice = setVoiceContext({
+    handle: (command) => {
+      if (command.type === 'capture') {
+        if (camera.active) {
+          void capture(false);
+        } else {
+          status('Die Live-Kamera ist nicht aktiv. Tippe auf „Foto mit der Kamera-App aufnehmen“.', 'error');
+        }
+        return true;
+      }
+      if (command.type === 'save') {
+        if (scanPages().length > 0) {
+          saveButton.click();
+        } else {
+          status('Es ist noch keine Seite aufgenommen. Sage „Aufnehmen“ oder lege ein Blatt unter die Kamera.', 'error');
+        }
+        return true;
+      }
+      return false;
+    },
+  });
+
   let persistErrorShown = false;
   setPersistErrorHandler((error) => {
     // Einmal pro Besuch melden, nicht bei jeder weiteren Seite erneut.
@@ -457,6 +480,7 @@ export function scannerView(): View {
     element,
     destroy: () => {
       destroyed = true;
+      unregisterVoice();
       setPersistErrorHandler(null);
       document.removeEventListener('visibilitychange', onVisibility);
       stopCamera();

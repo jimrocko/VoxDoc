@@ -2,7 +2,9 @@ import { h } from '../dom.ts';
 import { status } from '../feedback.ts';
 import { spokenDate } from '../format.ts';
 import { href, navigate } from '../router.ts';
+import { documentToPdf } from '../export/export.ts';
 import { textFromOcr } from '../ocr/format.ts';
+import { pageMapFor } from '../reader/pages.ts';
 import { splitParagraphs } from '../reader/text.ts';
 import { deleteDocument, getDocument, movePage, updateDocument, type VoxDocument } from '../storage/documents.ts';
 import { storageErrorMessage } from '../storage/errors.ts';
@@ -10,6 +12,8 @@ import { getPosition, savePosition, type ReadingPosition } from '../storage/posi
 import { section, viewHeader, type View } from './components.ts';
 import { notFoundView } from './not-found.ts';
 import { ocrPanel } from './ocr-panel.ts';
+import { setVoiceContext } from '../voice/controller.ts';
+import { createDelivery } from './delivery.ts';
 import { readerPanel, type ReaderPanel } from './reader-panel.ts';
 
 function shareFiles(doc: VoxDocument): File[] {
@@ -76,7 +80,7 @@ export async function documentView(id: string): Promise<View> {
           console.warn('Leseposition nicht gespeichert', error);
         });
       },
-    });
+    }, pageMapFor(doc));
     readerHolder.replaceChildren(reader.element);
   };
   renderText(storedPosition);
@@ -204,6 +208,81 @@ export async function documentView(id: string): Promise<View> {
       )
     : null;
 
+  // ---------- PDF ----------
+  const pdfButton = h('button', { type: 'button', class: 'button button-secondary' }, 'Als PDF exportieren');
+  let pdfLabel = '';
+  const pdfDelivery = createDelivery('PDF speichern', (result, name) => {
+    if (result === 'needsTap') {
+      status(`${pdfLabel} ist fertig. Tippe auf „PDF speichern“, um es abzulegen.`);
+    } else if (result === 'cancelled') {
+      status('PDF nicht gespeichert.');
+    } else if (result === 'downloaded') {
+      status(`${pdfLabel} heruntergeladen als „${name}“. Du findest es in der Dateien-App unter Downloads.`, 'success');
+    } else {
+      status(`${pdfLabel} weitergegeben.`, 'success');
+    }
+  });
+  const exportPdf = async (): Promise<void> => {
+    pdfButton.disabled = true;
+    status('PDF wird erstellt …');
+    try {
+      const pdf = await documentToPdf(doc);
+      const parts = [`PDF mit ${pdf.pageCount === 1 ? '1 Seite' : `${pdf.pageCount} Seiten`}`];
+      if (!pdf.hasText) {
+        parts.push('ohne Text');
+      }
+      pdfLabel = parts.join(', ');
+      if (pdf.replacedCharacters > 0) {
+        status(`${pdf.replacedCharacters} Zeichen konnten im PDF nicht dargestellt werden und wurden durch Fragezeichen ersetzt.`);
+      }
+      await pdfDelivery.deliver(pdf.blob, pdf.name);
+    } catch (error) {
+      console.error(error);
+      status('Das PDF konnte nicht erstellt werden. Versuche es erneut.', 'error');
+    } finally {
+      pdfButton.disabled = false;
+    }
+  };
+  pdfButton.addEventListener('click', () => void exportPdf());
+
+  const unregisterVoice = setVoiceContext({
+    beforeListening: () => reader?.pauseQuietly?.(),
+    afterListeningFailed: () => reader?.resumeIfInterrupted?.(),
+    handle: (command) => {
+      if (reader?.handle?.(command)) {
+        return true;
+      }
+      switch (command.type) {
+        case 'read':
+        case 'resume':
+        case 'restart':
+        case 'pause':
+        case 'stop':
+        case 'nextPage':
+        case 'previousPage':
+        case 'nextParagraph':
+        case 'previousParagraph':
+        case 'repeat':
+          status(doc.pages.length > 0 ? 'Dieses Dokument hat noch keinen Text zum Vorlesen. Starte die Texterkennung.' : 'Dieses Dokument hat noch keinen Text zum Vorlesen.', 'error');
+          return true;
+        case 'exportPdf':
+          void exportPdf();
+          return true;
+        case 'save': {
+          const form = formHolder.querySelector('form');
+          if (form) {
+            form.requestSubmit();
+          } else {
+            status('Das Dokument ist bereits gespeichert. Änderungen speichert VoxDoc sofort.');
+          }
+          return true;
+        }
+        default:
+          return false;
+      }
+    },
+  });
+
   const deleteButton = h(
     'button',
     {
@@ -303,7 +382,7 @@ export async function documentView(id: string): Promise<View> {
     section(
       'actions-heading',
       'Bearbeiten',
-      h('div', { class: 'button-stack' }, editButton, renameButton, shareButton),
+      h('div', { class: 'button-stack' }, editButton, renameButton, shareButton, pdfButton, pdfDelivery.button),
       formHolder,
     ),
     photoSection,
@@ -314,6 +393,7 @@ export async function documentView(id: string): Promise<View> {
     title: doc.title,
     element,
     destroy: () => {
+      unregisterVoice();
       reader?.destroy();
       ocr?.destroy();
       pageUrls.forEach((url) => URL.revokeObjectURL(url));
