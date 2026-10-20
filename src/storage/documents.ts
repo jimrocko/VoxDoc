@@ -1,11 +1,30 @@
+/** Ergebnis der Texterkennung für eine Seite – unverändert, wie die OCR es geliefert hat. */
+export interface OcrPageResult {
+  text: string;
+  /** Mittlere Wort-Konfidenz der OCR, 0–100. */
+  confidence: number;
+  words: number;
+}
+
+export interface OcrResult {
+  engine: string;
+  language: string;
+  recognizedAt: number;
+  pages: OcrPageResult[];
+}
+
 /** Dokumente bleiben auf dem Gerät – gespeichert in IndexedDB. */
 export interface VoxDocument {
   id: string;
   title: string;
-  /** Erkannter oder selbst eingegebener Text. */
+  /**
+   * Text zum Lesen, Vorlesen und Suchen. Wird aus der Texterkennung befüllt
+   * und kann bearbeitet werden; das Rohergebnis bleibt in `ocr` erhalten.
+   */
   text: string;
-  /** Fotos der Seiten in Lesereihenfolge. */
+  /** Originalfotos der Seiten in Lesereihenfolge – werden nie verändert. */
   pages: Blob[];
+  ocr: OcrResult | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -14,12 +33,12 @@ const DB_NAME = 'voxdoc';
 const DB_VERSION = 2;
 const STORE = 'documents';
 
-type StoredDocument = Omit<VoxDocument, 'pages'> & { pages?: Blob[]; image?: Blob | null };
+type StoredDocument = Omit<VoxDocument, 'pages' | 'ocr'> & { pages?: Blob[]; image?: Blob | null; ocr?: OcrResult | null };
 
 /** Bringt auch Datensätze im alten Format in die aktuelle Form. */
 function normalize(stored: StoredDocument): VoxDocument {
-  const { image, pages, ...rest } = stored;
-  return { ...rest, pages: pages ?? (image ? [image] : []) };
+  const { image, pages, ocr, ...rest } = stored;
+  return { ...rest, pages: pages ?? (image ? [image] : []), ocr: ocr ?? null };
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -77,14 +96,14 @@ export async function getDocument(id: string): Promise<VoxDocument | undefined> 
 
 export async function createDocument(fields: Pick<VoxDocument, 'title' | 'pages'>): Promise<VoxDocument> {
   const now = Date.now();
-  const doc: VoxDocument = { id: crypto.randomUUID(), text: '', createdAt: now, updatedAt: now, ...fields };
+  const doc: VoxDocument = { id: crypto.randomUUID(), text: '', ocr: null, createdAt: now, updatedAt: now, ...fields };
   await run('readwrite', (store) => store.add(doc));
   return doc;
 }
 
 export async function updateDocument(
   id: string,
-  changes: Partial<Pick<VoxDocument, 'title' | 'text'>>,
+  changes: Partial<Pick<VoxDocument, 'title' | 'text' | 'ocr'>>,
 ): Promise<VoxDocument> {
   const current = await getDocument(id);
   if (!current) {

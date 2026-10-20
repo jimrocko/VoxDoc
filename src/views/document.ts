@@ -6,6 +6,7 @@ import { splitParagraphs } from '../reader/text.ts';
 import { deleteDocument, getDocument, updateDocument, type VoxDocument } from '../storage/documents.ts';
 import { section, viewHeader, type View } from './components.ts';
 import { notFoundView } from './not-found.ts';
+import { ocrPanel } from './ocr-panel.ts';
 import { readerPanel, type ReaderPanel } from './reader-panel.ts';
 
 function shareFiles(doc: VoxDocument): File[] {
@@ -51,7 +52,9 @@ export async function documentView(id: string): Promise<View> {
         h(
           'p',
           { class: 'empty' },
-          'Dieses Dokument hat noch keinen Text. Du kannst ihn über „Text bearbeiten“ eingeben oder diktieren.',
+          doc.pages.length > 0
+            ? 'Dieses Dokument hat noch keinen Text. Starte oben die Texterkennung oder gib ihn über „Text bearbeiten“ ein.'
+            : 'Dieses Dokument hat noch keinen Text. Du kannst ihn über „Text bearbeiten“ eingeben oder diktieren.',
         ),
       );
       readerHolder.replaceChildren();
@@ -63,6 +66,21 @@ export async function documentView(id: string): Promise<View> {
     readerHolder.replaceChildren(reader.element);
   };
   renderText();
+
+  // ---------- Texterkennung ----------
+  const ocr =
+    doc.pages.length > 0
+      ? ocrPanel(
+          () => doc,
+          (updated, textChanged) => {
+            doc = updated;
+            // Den Leser nur neu aufbauen, wenn sich der Text geändert hat – sonst bräche Vorlesen ab.
+            if (textChanged) {
+              renderText();
+            }
+          },
+        )
+      : null;
 
   // ---------- Formulare (Umbenennen, Text bearbeiten) ----------
   const formHolder = h('div', null);
@@ -142,6 +160,7 @@ export async function documentView(id: string): Promise<View> {
     openForm(editButton, 'Text des Dokuments', textarea, async (value) => {
       doc = await updateDocument(doc.id, { text: value.trim() });
       renderText();
+      ocr?.refresh();
       status('Text gespeichert.', 'success');
     });
   });
@@ -193,6 +212,7 @@ export async function documentView(id: string): Promise<View> {
     { class: 'view' },
     h('a', { class: 'back-link', href: href({ name: 'library' }) }, 'Zurück zur Bibliothek'),
     header,
+    ocr?.element,
     readerHolder,
     section('text-heading', 'Text', textBody),
     section(
@@ -227,6 +247,7 @@ export async function documentView(id: string): Promise<View> {
     element,
     destroy: () => {
       reader?.destroy();
+      ocr?.destroy();
       pageUrls.forEach((url) => URL.revokeObjectURL(url));
     },
   };

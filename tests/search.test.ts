@@ -8,6 +8,7 @@ const doc = (id: string, title: string, text = '', createdAt = 0): VoxDocument =
   title,
   text,
   pages: [],
+  ocr: null,
   createdAt,
   updatedAt: createdAt,
 });

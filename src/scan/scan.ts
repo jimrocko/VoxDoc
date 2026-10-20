@@ -2,7 +2,9 @@ import { byId } from '../dom.ts';
 import { status } from '../feedback.ts';
 import { countLabel, defaultTitle } from '../format.ts';
 import { navigate } from '../router.ts';
+import { ocrService } from '../ocr/service.ts';
 import { createDocument, requestPersistentStorage } from '../storage/documents.ts';
+import { getSettings } from '../storage/settings.ts';
 import { prepareImage } from './image.ts';
 
 /** `camera` öffnet die Kamera-App von iOS, `photos` die Mediathek (Mehrfachauswahl). */
@@ -57,6 +59,9 @@ export async function saveScannedDocument(pages: Blob[]): Promise<void> {
   void requestPersistentStorage();
   status(`Dokument mit ${countLabel(pages.length, 'Seite', 'Seiten')} gespeichert.`, 'success');
   navigate({ name: 'document', id: doc.id });
+  if (getSettings().autoOcr) {
+    ocrService.enqueue(doc.id);
+  }
 }
 
 let importing = false;

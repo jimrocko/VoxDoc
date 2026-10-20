@@ -766,3 +766,25 @@ input[type='range'] {
     scroll-behavior: auto !important;
   }
 }
+
+/* ---------- Texterkennung ---------- */
+progress {
+  display: block;
+  width: 100%;
+  height: 0.75rem;
+  margin: 0 0 var(--space);
+  accent-color: var(--color-primary);
+}
+
+.ocr-status {
+  font-weight: 600;
+}
+
+.ocr-error {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.section .button-stack + .hint {
+  margin-top: 0.75rem;
+}

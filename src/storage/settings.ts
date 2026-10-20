@@ -15,6 +15,8 @@ export interface Settings {
   announceParagraphs: boolean;
   /** Scanner löst aus, sobald das Blatt ruhig und vollständig im Bild ist. */
   autoCapture: boolean;
+  /** Nach dem Scannen automatisch Text erkennen. */
+  autoOcr: boolean;
   librarySort: LibrarySort;
 }
 
@@ -29,6 +31,7 @@ export const defaults: Settings = {
   speakStatus: false,
   announceParagraphs: true,
   autoCapture: true,
+  autoOcr: true,
   librarySort: 'newest',
 };
 
@@ -53,6 +56,7 @@ export function sanitize(raw: unknown): Settings {
     announceParagraphs:
       typeof input.announceParagraphs === 'boolean' ? input.announceParagraphs : defaults.announceParagraphs,
     autoCapture: typeof input.autoCapture === 'boolean' ? input.autoCapture : defaults.autoCapture,
+    autoOcr: typeof input.autoOcr === 'boolean' ? input.autoOcr : defaults.autoOcr,
     librarySort: oneOf(input.librarySort, ['newest', 'oldest', 'title'], defaults.librarySort),
   };
 }

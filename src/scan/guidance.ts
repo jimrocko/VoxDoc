@@ -38,7 +38,8 @@ const DARK_PAPER = 90;
 /** Ohne Blatt nur bei fast schwarzem Bild (z. B. verdeckte Linse) – ein dunkler Tisch ist kein Lichtmangel. */
 const DARK_SCENE = 35;
 const TOO_CLOSE_COVERAGE = 0.9;
-const TOO_FAR_COVERAGE = 0.3;
+/** Unterhalb davon reicht die Auflösung eines Videobilds nicht für die Texterkennung (gemessen mit 11-pt-Schrift: bei 55 % Fläche vollständig, bei 34 % lückenhaft erkannt). */
+const TOO_FAR_COVERAGE = 0.45;
 const OFF_CENTER = 0.12;
 /** Mittlere Helligkeitsänderung zwischen zwei Analysebildern, ab der es „wackelt“. */
 const MOTION = 8;

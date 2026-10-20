@@ -39,6 +39,8 @@ export default defineConfig(({ mode }) => {
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
+        // Die OCR-Dateien (etwa 5 MB) lädt und speichert die App selbst bei Bedarf (src/ocr/assets.ts).
+        globIgnores: ['**/worker.min-*.js', '**/tesseract-core-*.js', '**/*.traineddata*'],
         navigateFallback: 'index.html',
       },
     }),

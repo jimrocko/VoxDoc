@@ -21,7 +21,7 @@ export function helpView(): View {
         list(
           'Lege das Blatt auf eine dunkle, ebene Fläche, zum Beispiel einen dunklen Tisch. Ein weißes Blatt auf weißem Untergrund wird nicht erkannt.',
           'Sorge für gleichmäßiges Licht ohne starke Schatten.',
-          'Halte das iPhone flach, mit dem Bildschirm nach oben, etwa 30 Zentimeter über der Mitte des Blatts.',
+          'Halte das iPhone flach, mit dem Bildschirm nach oben, etwa 20 bis 30 Zentimeter über der Mitte des Blatts. Das Blatt sollte den Bildschirm fast ausfüllen – sonst ist der Text zu klein für die Texterkennung.',
           'Folge den Ansagen: „nach links“ und „nach rechts“ beziehen sich auf das iPhone; „Richtung Oberkante“ heißt, das iPhone in die Richtung seiner oberen Kante zu schieben.',
           'Sobald das Blatt vollständig und ruhig im Bild ist, hörst du schnelle Takt-Töne und dann ein Auslösegeräusch. Die Seite ist aufgenommen.',
           'Für die nächste Seite lege einfach das neue Blatt hin. Dieselbe Seite wird nicht zweimal aufgenommen.',
@@ -44,6 +44,18 @@ export function helpView(): View {
           'Hast du den Kamerazugriff abgelehnt, sagt VoxDoc dir, wo du ihn in den Einstellungen wieder erlaubst.',
           'Ist die Kamera belegt, etwa durch einen Anruf, beende die andere App und tippe auf „Kamera erneut versuchen“.',
           'Es geht immer auch ohne Live-Kamera: „Foto mit der Kamera-App aufnehmen“ öffnet die normale iPhone-Kamera, „Fotos aus der Mediathek wählen“ übernimmt vorhandene Fotos. Jedes Foto wird eine Seite.',
+        ),
+      ),
+      section(
+        'help-ocr',
+        'Texterkennung',
+        list(
+          'Nach dem Speichern eines Scans erkennt VoxDoc den Text automatisch. Den Fortschritt siehst du im Bereich „Texterkennung“ des Dokuments; wichtige Schritte werden angesagt.',
+          'Beim ersten Mal werden die deutschen Sprachdaten geladen, etwa 5 MB. Danach funktioniert die Texterkennung auch ohne Internet.',
+          'Die Erkennung läuft vollständig auf deinem iPhone. Die Fotos bleiben unverändert erhalten; der erkannte Text wird getrennt gespeichert.',
+          'Die Genauigkeit wird als gut, mittel oder niedrig angesagt. Bei niedriger Genauigkeit enthält der Text wahrscheinlich Fehler – scanne die Seite dann näher oder mit mehr Licht neu, oder nutze die Kamera-App.',
+          'Hast du den Text selbst bearbeitet, überschreibt eine neue Erkennung ihn nicht. Mit „Erkannten Text übernehmen“ ersetzt du ihn bewusst.',
+          'Handschrift und sehr kleine oder verzierte Schrift werden oft nicht erkannt. Die Seite muss aufrecht liegen; leicht schräge Seiten werden ausgeglichen.',
         ),
       ),
       section(

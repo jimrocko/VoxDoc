@@ -18,6 +18,8 @@ describe('hintFor', () => {
     expect(at({ left: 0.05, top: 0.3, right: 0.55, bottom: 0.7 })).toBe('left');
     expect(at({ left: 0, top: 0, right: 1, bottom: 0.8 })).toBe('tooClose');
     expect(at({ left: 0.35, top: 0.35, right: 0.65, bottom: 0.65 })).toBe('tooFar');
+    // A4 mit 65 % der Bildbreite: für die Texterkennung noch zu klein.
+    expect(at({ left: 0.175, top: 0.24, right: 0.825, bottom: 0.76 })).toBe('tooFar');
     expect(at(null, { background: 128 })).toBe('noDocument');
     expect(at({ left: 0.15, top: 0.12, right: 0.85, bottom: 0.88 }, { background: 5, paper: 30 })).toBe('dark');
     expect(at({ left: 0.15, top: 0.12, right: 0.85, bottom: 0.88 }, { background: 10, paper: 80 })).toBe('dark');

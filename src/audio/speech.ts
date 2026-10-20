@@ -29,6 +29,10 @@ export function setReaderActive(active: boolean): void {
   readerActive = active;
 }
 
+export function isReaderActive(): boolean {
+  return readerActive;
+}
+
 export function selectedVoice(voiceURI: string): SpeechSynthesisVoice | undefined {
   return voiceURI ? germanVoices().find((voice) => voice.voiceURI === voiceURI) : undefined;
 }

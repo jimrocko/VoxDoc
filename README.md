@@ -4,9 +4,8 @@ Barrierefreie Dokumentenerkennung für blinde und sehbehinderte Menschen, gebaut
 Progressive Web App (PWA) für das iPhone. VoxDoc soll Dokumente mit der Kamera erfassen,
 den Text erkennen und vorlesen.
 
-> **Status:** Grundoberfläche fertig – Scannen mit Live-Kamera und Sprachführung, Bibliothek, Suche, Vorlesen,
-> Einstellungen und Hilfe funktionieren. Die automatische Texterkennung (OCR) folgt; bis
-> dahin kann der Text eines Dokuments eingegeben oder diktiert werden.
+> **Status:** Scannen mit Live-Kamera und Sprachführung, lokale Texterkennung (Deutsch),
+> Bibliothek, Suche, Vorlesen, Einstellungen und Hilfe funktionieren.
 
 ## Funktionen
 
@@ -14,6 +13,8 @@ den Text erkennen und vorlesen.
   Seiten pro Dokument, Seiten neu aufnehmen oder entfernen. Alternativ Kamera-App oder Mediathek
   (siehe [Dokumentenscanner](#dokumentenscanner)). Fotos werden auf höchstens 2400 Pixel verkleinert
   und lokal gespeichert.
+- **Texterkennung (OCR)** – Tesseract.js lokal im Browser, deutsches Modell, offline nach dem ersten
+  Laden; startet automatisch nach dem Scannen (siehe [Texterkennung](#texterkennung-ocr)).
 - **Bibliothek** – alle Dokumente, sortierbar nach Datum oder Name.
 - **Dokument** – Vorlesen, Text bearbeiten/diktieren, Umbenennen, Teilen (iOS-Teilen-Menü), Löschen.
 - **Vorlesen** – Pause und Fortsetzen am zuletzt gesprochenen Wort, vorheriger/nächster Absatz,
@@ -30,6 +31,7 @@ den Text erkennen und vorlesen.
 
 - [Vite](https://vite.dev/) mit **TypeScript** (strict), ohne UI-Framework
 - [vite-plugin-pwa](https://vite-pwa-org.netlify.app/) für Manifest und Service Worker (Workbox, offline nutzbar)
+- [Tesseract.js](https://github.com/naptha/tesseract.js) 7 (Apache-2.0) mit `@tesseract.js-data/deu` (MIT) für die Texterkennung
 - Optimiert für **iOS Safari** und **Apple VoiceOver**
 
 ## Voraussetzungen
@@ -78,7 +80,7 @@ Anschließend in Safari über „Teilen“ → „Zum Home-Bildschirm“ install
 | `npm run preview`       | Produktions-Build lokal ausliefern                   |
 | `npm run preview:https` | Produktions-Build über HTTPS ausliefern              |
 | `npm run typecheck`     | Nur TypeScript-Typprüfung                            |
-| `npm test`              | Unit-Tests mit Vitest                                |
+| `npm test`              | Unit-Tests mit Vitest (inkl. echter Texterkennung)   |
 
 ## Projektstruktur
 
@@ -92,6 +94,8 @@ Anschließend in Safari über „Teilen“ → „Zum Home-Bildschirm“ install
 │   ├── views/              Ansichten: Start, Scanner, Bibliothek, Dokument, Suche, Einstellungen, Hilfe;
 │   │                       reader-panel.ts = Bedienfeld fürs Vorlesen
 │   ├── reader/             Vorlese-Logik (reader.ts) und Text-Aufteilung (text.ts)
+│   ├── ocr/                Texterkennung: Dateien laden/cachen (assets.ts), Tesseract-Worker (engine.ts),
+│   │                       Warteschlange und Ansagen (service.ts), Textaufbereitung (format.ts), Fehler (errors.ts)
 │   ├── scan/               Scanner: Kamera (camera.ts), Bildanalyse (analyze.ts), Sprachführung
 │   │                       (guidance.ts), Seiten des laufenden Scans (session.ts), Dateiauswahl (scan.ts)
 │   ├── storage/            Dokumente (IndexedDB) und Einstellungen (localStorage)
@@ -101,7 +105,7 @@ Anschließend in Safari über „Teilen“ → „Zum Home-Bildschirm“ install
 │   ├── search.ts           Volltextsuche
 │   ├── dom.ts, format.ts   DOM-Helfer, deutsche Datums- und Zahlenformate
 │   └── styles.css          Dunkles, minimalistisches Design
-├── tests/                  Unit-Tests (Vitest)
+├── tests/                  Unit-Tests (Vitest), inkl. echter Texterkennung auf Testbildern (fixtures/)
 ├── vite.config.ts          Vite- und PWA-Konfiguration (Manifest)
 └── tsconfig.json
 ```
@@ -236,6 +240,106 @@ chromium --use-fake-device-for-media-stream --use-fake-ui-for-media-stream \
 Damit lassen sich Szenen wie „Blatt ragt links heraus“, „Blatt liegt ruhig“ oder „Blatt entfernt“
 reproduzierbar durchspielen. `--deny-permission-prompts` simuliert einen abgelehnten Kamerazugriff.
 
+## Texterkennung (OCR)
+
+### Wahl der Lösung
+
+**Tesseract.js 7** (Apache-2.0) mit dem deutschen LSTM-Modell `deu` in der Variante `4.0.0_best_int`
+aus `@tesseract.js-data/deu` (MIT). Kostenlos, quelloffen, läuft als WebAssembly in einem Web Worker
+vollständig auf dem Gerät – kein Server, keine Übertragung von Fotos oder Text. Das Modell kennt
+Umlaute und ß. Verwendet wird nur die LSTM-Engine (`OEM.LSTM_ONLY`); die ältere Legacy-Engine würde
+die Sprachdaten von 1,3 auf 7,1 MB vergrößern.
+
+### Ablauf und Datenhaltung
+
+- Nach dem Speichern eines Scans startet die Erkennung automatisch (abschaltbar), sonst über
+  „Text erkennen“ im Dokument. Mehrere Dokumente werden nacheinander abgearbeitet; die Erkennung
+  läuft weiter, wenn man die Ansicht wechselt.
+- **Getrennte Speicherung:** `pages` enthält die Originalfotos (werden nie verändert), `ocr` das
+  unveränderte Rohergebnis je Seite mit Konfidenz und Wortzahl, `text` den Lesetext. Der Lesetext
+  entsteht aus dem Rohergebnis, indem nur Zeilenumbrüche zu Absätzen zusammengeführt werden – es wird
+  kein Zeichen ergänzt, entfernt oder „korrigiert“.
+- **Keine erfundenen Ergebnisse:** Leere Seiten bleiben leer und werden so angesagt. Die Genauigkeit
+  (gut ≥ 80 %, mittel ≥ 60 %, sonst niedrig) wird immer genannt; bei niedriger Genauigkeit warnt VoxDoc,
+  dass der Text wahrscheinlich Fehler enthält.
+- **Eigene Bearbeitungen bleiben erhalten:** Wurde der Text bearbeitet, ersetzt eine neue Erkennung ihn
+  nicht; „Erkannten Text übernehmen“ ersetzt ihn auf Wunsch (mit Rückfrage).
+- Abbrechen ist jederzeit möglich; Teilergebnisse werden verworfen.
+
+### Fortschritt und Meldungen (VoiceOver)
+
+- Sichtbar: Statuszeile („Seite 2 von 3 wird erkannt … 45 %“) und ein `<progress>`-Balken mit Namen,
+  den VoiceOver mit Prozentwert vorliest.
+- Angesagt werden nur Schritte: Start, Laden der Sprachdaten (nur beim ersten Mal), jede fertige Seite
+  bei mehrseitigen Dokumenten, alle 15 Sekunden der Fortschritt bei langen Erkennungen, das Ergebnis
+  („Text erkannt: 43 Wörter. Genauigkeit gut.“) bzw. der Fehler. Läuft die Erkennung für ein anderes
+  Dokument als das angezeigte, nennt die Ansage dessen Titel.
+- Während des Vorlesens sind alle Ansagen stumm geschaltet (nur Töne), damit VoiceOver nicht
+  gleichzeitig spricht.
+- Fehler mit Ausweg: keine Internetverbindung beim ersten Laden, Download fehlgeschlagen, Speicher voll,
+  Arbeitsspeicher reicht nicht, Zeitüberschreitung (3 Minuten je Seite), Browser ohne WebAssembly,
+  Dokument ohne Fotos.
+
+### Kompatibilität mit iPhone Safari
+
+| Voraussetzung | Safari | Verwendung |
+| --- | --- | --- |
+| WebAssembly, Web Worker, Blob-URLs | iOS 11+ | Engine im Worker |
+| WebAssembly SIMD | iOS 16.4+ | schnellere Engine; sonst automatisch die Variante ohne SIMD |
+| Cache Storage | iOS 11.3+ (nur HTTPS bzw. localhost) | Offline-Speicher der OCR-Dateien |
+
+Der Downloadfortschritt nutzt `response.body`; fehlt es, wird ohne Fortschrittsanzeige geladen. Ohne
+Cache Storage (z. B. über unverschlüsseltes HTTP im LAN) funktioniert die Erkennung, aber nicht offline.
+Die Relaxed-SIMD-Variante der Engine wird nicht verwendet. Mindestens Safari 16 ist sinnvoll.
+
+### Speicherbedarf, Ladezeit, Offline
+
+- **Download beim ersten Mal:** Worker 0,11 MB + Engine 3,9 MB + deutsche Sprachdaten 1,3 MB ≈ **5,3 MB**
+  (die Engine-Datei ist base64-kodiertes WebAssembly und lässt sich beim Ausliefern gut komprimieren).
+- **Speicher auf dem Gerät:** 5,3–6,1 MB im Cache `voxdoc-ocr` (je nachdem, ob der Server die Sprachdaten
+  komprimiert ausliefert). Anzeige und Löschen unter *Einstellungen › Texterkennung*.
+- **Nicht im Service-Worker-Precache:** Die App bleibt klein (Precache ≈ 130 KB); die OCR-Dateien werden
+  erst bei der ersten Erkennung oder per „Jetzt für Offline-Nutzung laden“ geladen.
+- **Offline:** Die App lädt die Dateien selbst aus dem Cache und übergibt sie dem Worker als Blob-URL bzw.
+  Daten. Damit hängt der Offline-Betrieb nicht davon ab, ob Safari Anfragen aus Web Workern über den
+  Service Worker leitet.
+- **Gemessen (Chromium, Desktop-Rechner, nicht iPhone):** erste Erkennung inklusive Laden ≈ 2 s, weitere
+  Seiten ≈ 1 s, Kaltstart offline aus dem Cache ≈ 1 s; Spitzen-Arbeitsspeicher des Renderer-Prozesses
+  ≈ 320 MB (vorher ≈ 100 MB). Auf einem iPhone ist mit einem Mehrfachen der Zeit zu rechnen.
+- Nach 60 Sekunden ohne Aufgabe wird der Worker beendet, um Arbeitsspeicher freizugeben.
+
+### Erkennungsqualität
+
+Gemessen mit Tesseract.js und dem verwendeten Modell (Testbilder in `tests/fixtures`, simulierte
+Kamerabilder 1080 × 1920 mit A4-Brief in 11-pt-Schrift, leicht gedreht, unscharf und verrauscht):
+
+| Aufnahme | Fläche des Blatts im Bild | Prüfwörter erkannt | Konfidenz |
+| --- | --- | --- | --- |
+| Testbrief (Foto/Mediathek) | – | 10/10 inkl. ä, ö, ü, Ä, Ö, Ü, ß | 95 |
+| Kamerabild, Blatt füllt 83 % der Breite | 55 % | 13/13 | 94 |
+| Kamerabild, 65 % der Breite | 34 % | 10/13 | 82 |
+| Kamerabild, 48 % der Breite | 19 % | 0/13 | 0 |
+
+Deshalb sagt der Scanner „Zu weit weg“, bis das Blatt mindestens 45 % des Bildes einnimmt.
+
+### Einschränkungen
+
+- **Nicht auf einem echten iPhone getestet.** Getestet in Node (echte Erkennung) und Chromium (kompletter
+  Browser-Ablauf inkl. Worker, Cache, offline). WebKit stand in der Testumgebung nicht zur Verfügung.
+  Laufzeit und Speicherverbrauch auf dem iPhone sind nicht gemessen.
+- **Arbeitsspeicher:** Reicht er nicht, kann iOS die Seite neu laden, ohne dass VoxDoc eine Fehlermeldung
+  zeigen kann; die Erkennung muss dann neu gestartet werden. Fotos sind deshalb auf 2400 Pixel begrenzt.
+- **Hintergrund:** Wechselt man die App, kann iOS die Erkennung anhalten oder den Worker beenden. Antwortet
+  er nicht mehr, bricht VoxDoc nach 3 Minuten je Seite mit einer Meldung ab; dann neu starten.
+- **Keine Seitenausrichtung:** Ohne Legacy-Engine gibt es keine Erkennung von auf dem Kopf stehenden oder
+  um 90° gedrehten Seiten; leichte Schräglage wird ausgeglichen (`rotateAuto`).
+- **Layout:** Spalten, Tabellen und Formulare werden als fortlaufender Text ausgegeben; Handschrift und
+  Frakturschrift werden kaum erkannt.
+- **Tesseract.js 7.0.0 hat einen Fehler** beim Übergeben von Sprachdaten als `{ code, data }` (beim
+  Initialisieren wird `data` statt `code` als Sprachname verwendet). `src/ocr/engine.ts` korrigiert
+  im Startskript des Workers gezielt nur diese eine Nachricht; bei einem Update von Tesseract.js prüfen,
+  ob das noch nötig ist.
+
 ## Vorlesefunktion
 
 Das Vorlesen nutzt die Web Speech API (`speechSynthesis`), die in Safari auf die
@@ -319,7 +423,6 @@ verringert Überschneidungen so:
 
 ## Nächste Schritte
 
-- Texterkennung (OCR) im Browser, Ergebnis landet im Textfeld des Dokuments
 - Zuschneiden und Entzerren der Seiten, Schärfeprüfung
 - Seiten zu einem gespeicherten Dokument hinzufügen
 - Automatisierte Ende-zu-Ende- und Barrierefreiheitstests (z. B. Playwright + axe-core) im Repository

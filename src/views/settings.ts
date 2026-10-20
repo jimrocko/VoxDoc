@@ -12,6 +12,8 @@ import {
   SPEECH_RATE_MIN,
   type Theme,
 } from '../storage/settings.ts';
+import { cachedOcrBytes, deleteOcrAssets, loadOcrAssets } from '../ocr/assets.ts';
+import { classifyOcrError, DOWNLOAD_MB, ocrErrorMessages } from '../ocr/errors.ts';
 import { section, viewHeader, type View } from './components.ts';
 
 const themeLabels: Record<Theme, string> = {
@@ -169,6 +171,79 @@ function scannerSection(): HTMLElement {
   );
 }
 
+async function ocrSection(): Promise<{ element: HTMLElement; destroy: () => void }> {
+  const summary = h('p', { id: 'ocr-assets-status' });
+  const progress = h('progress', { max: '100', value: '0', 'aria-label': 'Download der Sprachdaten', hidden: true });
+  const downloadButton = h('button', { type: 'button', class: 'button button-secondary' }, 'Jetzt für Offline-Nutzung laden');
+  const deleteButton = h('button', { type: 'button', class: 'button button-danger' }, 'Sprachdaten löschen');
+  let destroyed = false;
+
+  const refresh = async (): Promise<void> => {
+    const bytes = await cachedOcrBytes();
+    if (destroyed) {
+      return;
+    }
+    summary.textContent =
+      bytes === null
+        ? `Die deutschen Sprachdaten sind noch nicht auf diesem iPhone. Sie werden bei der ersten Texterkennung geladen (etwa ${DOWNLOAD_MB} MB).`
+        : `Die deutschen Sprachdaten sind auf diesem iPhone gespeichert (${megabytes(bytes)}). Die Texterkennung funktioniert offline.`;
+    downloadButton.hidden = bytes !== null;
+    deleteButton.hidden = bytes === null;
+  };
+
+  downloadButton.addEventListener('click', async () => {
+    downloadButton.disabled = true;
+    progress.hidden = false;
+    status(`Sprachdaten werden geladen, etwa ${DOWNLOAD_MB} Megabyte.`);
+    try {
+      await loadOcrAssets((loaded, total) => {
+        progress.value = total ? Math.round((loaded / total) * 100) : 0;
+      });
+      status('Sprachdaten gespeichert. Die Texterkennung funktioniert jetzt auch offline.', 'success');
+    } catch (error) {
+      status(ocrErrorMessages[classifyOcrError(error)], 'error');
+    } finally {
+      downloadButton.disabled = false;
+      progress.hidden = true;
+      await refresh();
+    }
+  });
+  deleteButton.addEventListener('click', async () => {
+    if (!window.confirm('Sprachdaten der Texterkennung löschen? Sie werden bei der nächsten Erkennung neu geladen.')) {
+      return;
+    }
+    await deleteOcrAssets();
+    await refresh();
+    status('Sprachdaten gelöscht.', 'success');
+    downloadButton.focus();
+  });
+
+  await refresh();
+  return {
+    element: section(
+      'ocr-settings-heading',
+      'Texterkennung',
+      toggle(
+        'auto-ocr-toggle',
+        'Nach dem Scannen automatisch erkennen',
+        'Startet die Texterkennung, sobald ein gescanntes Dokument gespeichert ist.',
+        getSettings().autoOcr,
+        (autoOcr) => {
+          updateSettings({ autoOcr });
+          status(autoOcr ? 'Automatische Texterkennung an.' : 'Automatische Texterkennung aus.');
+        },
+      ),
+      summary,
+      progress,
+      h('div', { class: 'button-stack' }, downloadButton, deleteButton),
+      h('p', { class: 'hint' }, 'Die Texterkennung (Tesseract) läuft vollständig auf dem iPhone. Fotos und Texte werden nicht übertragen.'),
+    ),
+    destroy: () => {
+      destroyed = true;
+    },
+  };
+}
+
 function themeSection(): HTMLElement {
   const current = getSettings().theme;
   return section(
@@ -254,6 +329,7 @@ function aboutSection(): HTMLElement {
 
 export async function settingsView(): Promise<View> {
   const speech = speechSection();
+  const ocr = await ocrSection();
   return {
     title: 'Einstellungen',
     element: h(
@@ -263,10 +339,14 @@ export async function settingsView(): Promise<View> {
       speech.element,
       feedbackSection(),
       scannerSection(),
+      ocr.element,
       themeSection(),
       await storageSection(),
       aboutSection(),
     ),
-    destroy: speech.destroy,
+    destroy: () => {
+      speech.destroy();
+      ocr.destroy();
+    },
   };
 }
