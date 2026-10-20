@@ -103,6 +103,11 @@ export class OcrService {
     }
   }
 
+  /** Alle laufenden und wartenden Erkennungen beenden (z. B. vor „Alle Dokumente löschen“). */
+  async cancelAll(): Promise<void> {
+    await Promise.all([...this.states.keys()].map((docId) => this.cancel(docId)));
+  }
+
   private emit(event: OcrEvent): void {
     for (const listener of this.listeners) {
       listener(event);

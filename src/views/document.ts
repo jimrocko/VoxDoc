@@ -4,6 +4,7 @@ import { spokenDate } from '../format.ts';
 import { href, navigate } from '../router.ts';
 import { exportDocument, ExportError, exportErrorMessages, formatLabels, type ExportFormat } from '../export/export.ts';
 import { textFromOcr } from '../ocr/format.ts';
+import { ocrService } from '../ocr/service.ts';
 import { pageMapFor } from '../reader/pages.ts';
 import { splitParagraphs } from '../reader/text.ts';
 import { deleteDocument, getDocument, movePage, updateDocument, type VoxDocument } from '../storage/documents.ts';
@@ -348,6 +349,8 @@ export async function documentView(id: string): Promise<View> {
           return;
         }
         try {
+          // Eine laufende Texterkennung würde sonst später ins Leere speichern.
+          await ocrService.cancel(doc.id);
           await deleteDocument(doc.id);
         } catch (error) {
           status(storageErrorMessage(error), 'error');

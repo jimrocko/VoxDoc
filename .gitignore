@@ -25,3 +25,4 @@ Thumbs.db
 
 # Lokale Zertifikate
 *.pem
+tests/browser/.work/

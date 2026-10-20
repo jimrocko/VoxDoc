@@ -4,6 +4,7 @@ import { startApp } from './app.ts';
 import { unlockSpeech } from './audio/speech.ts';
 import { unlockAudio } from './audio/tones.ts';
 import { byId } from './dom.ts';
+import { status } from './feedback.ts';
 import { initScanInputs } from './scan/scan.ts';
 import { initVoicePanel } from './voice/panel.ts';
 
@@ -31,10 +32,16 @@ function main(): void {
   startApp();
   initVoicePanel();
 
-  registerSW({
+  const updateSW = registerSW({
     immediate: true,
     onOfflineReady: () => announce('VoxDoc ist jetzt auch offline verfügbar.'),
+    // Neue Version: nur anbieten, nicht ungefragt neu laden.
+    onNeedRefresh: () => {
+      byId('update-banner').hidden = false;
+      status('Eine neue Version von VoxDoc ist bereit. Tippe oben auf „Jetzt aktualisieren“, wenn es passt.');
+    },
   });
+  byId('update-reload').addEventListener('click', () => void updateSW(true));
 }
 
 main();

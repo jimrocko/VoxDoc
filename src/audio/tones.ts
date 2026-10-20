@@ -28,7 +28,8 @@ function audioContext(): AudioContext | null {
 export function unlockAudio(): void {
   const ctx = audioContext();
   if (ctx?.state === 'suspended') {
-    void ctx.resume();
+    // Ohne Benutzeraktion lehnt Safari ab – dann bleibt es still, ohne Fehler.
+    ctx.resume().catch(() => {});
   }
 }
 

@@ -13,6 +13,7 @@ import {
   type Theme,
 } from '../storage/settings.ts';
 import { cachedOcrBytes, deleteOcrAssets, loadOcrAssets } from '../ocr/assets.ts';
+import { ocrService } from '../ocr/service.ts';
 import { classifyOcrError, DOWNLOAD_MB, ocrErrorMessages } from '../ocr/errors.ts';
 import { backupFileName, createBackup, restoreBackup } from '../storage/backup.ts';
 import { storageErrorMessage } from '../storage/errors.ts';
@@ -346,6 +347,7 @@ async function storageSection(): Promise<HTMLElement> {
                 return;
               }
               try {
+                await ocrService.cancelAll();
                 await deleteAllDocuments();
               } catch (error) {
                 status(storageErrorMessage(error), 'error');

@@ -82,7 +82,10 @@ export function initVoicePanel(): void {
       return;
     }
     close();
-    void runCommand(command);
+    runCommand(command).catch((error: unknown) => {
+      console.error(error);
+      status('Der Befehl konnte nicht ausgeführt werden.', 'error');
+    });
   };
 
   const notUnderstood = (heard: string): void => {

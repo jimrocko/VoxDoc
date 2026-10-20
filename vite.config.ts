@@ -8,7 +8,8 @@ import pkg from './package.json' with { type: 'json' };
 export default defineConfig(({ mode }) => {
   const plugins: PluginOption[] = [
     VitePWA({
-      registerType: 'autoUpdate',
+      // Nicht automatisch neu laden: Updates erst nach Bestätigung (WCAG 3.2.5), sonst gingen Eingaben verloren.
+      registerType: 'prompt',
       injectRegister: false,
       includeAssets: ['icons/icon.svg', 'icons/apple-touch-icon.png'],
       manifest: {

@@ -1,0 +1,48 @@
+import { chromium } from 'playwright-core';
+import fs from 'node:fs';
+const URL = 'http://localhost:4173/';
+const ok = (cond, msg) => { console.log(cond ? 'OK  ' : 'FAIL', msg); if (!cond) process.exitCode = 1; };
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM });
+const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true });
+await ctx.addInitScript(() => {
+  window.__announced = [];
+  new MutationObserver(() => { const el = document.getElementById('announcer'); if (el && el.textContent && el.textContent !== window.__last) window.__announced.push(el.textContent); window.__last = el?.textContent; }).observe(document, { subtree: true, childList: true, characterData: true });
+});
+const page = await ctx.newPage();
+page.on('dialog', (d) => d.accept());
+const said = async (t) => { await page.waitForTimeout(300); return (await page.evaluate(() => window.__announced)).some((m) => m.includes(t)); };
+
+console.log('--- Update nur auf Wunsch');
+await page.goto(URL); await page.waitForSelector('main h1');
+await page.evaluate(() => navigator.serviceWorker.ready);
+await page.reload(); await page.waitForSelector('main h1');
+ok(await page.evaluate(() => !!navigator.serviceWorker.controller), 'Service Worker steuert die Seite');
+await page.evaluate(() => { window.__marker = 'noch da'; });
+const swPath = `${process.env.DIST}/sw.js`;
+const original = fs.readFileSync(swPath, 'utf8');
+fs.writeFileSync(swPath, original + '\n// neue Version\n');
+await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update());
+await page.waitForSelector('#update-banner:not([hidden])', { timeout: 15000 }).catch(() => {});
+await page.waitForTimeout(1500);
+ok(await page.isVisible('#update-banner'), 'Hinweis „neue Version“ sichtbar');
+ok(await said('Eine neue Version von VoxDoc ist bereit.'), 'Hinweis angesagt');
+ok(await page.evaluate(() => window.__marker) === 'noch da', 'Seite wurde NICHT ungefragt neu geladen');
+await Promise.all([page.waitForEvent('load', { timeout: 15000 }), page.click('#update-reload')]);
+await page.waitForSelector('main h1');
+ok(await page.evaluate(() => window.__marker === undefined), '„Jetzt aktualisieren“ lädt neu');
+ok(await page.isHidden('#update-banner'), 'Nach dem Update kein Hinweis mehr');
+fs.writeFileSync(swPath, original);
+
+console.log('--- Löschen während der Texterkennung');
+await page.goto(URL); await page.waitForSelector('main h1');
+const [c] = await Promise.all([page.waitForEvent('filechooser'), page.click('button:has-text("Fotos aus der Mediathek wählen")')]);
+await c.setFiles(['brief.jpg', 'brief.jpg', 'brief.jpg', 'brief.jpg']);
+await page.waitForURL(/#\/dokument\//);
+await page.waitForFunction(() => /wird erkannt|vorbereitet/.test(document.querySelector('#ocr-status')?.textContent ?? ''), null, { timeout: 30000 });
+await page.click('button:has-text("Dokument löschen")');
+await page.waitForURL(/#\/bibliothek$/);
+await page.waitForTimeout(3000);
+const ann = await page.evaluate(() => window.__announced);
+ok(ann.some((m) => m.includes('Texterkennung abgebrochen.')) && ann.some((m) => m.includes('gelöscht.')), 'Erkennung abgebrochen, Dokument gelöscht');
+ok(!ann.some((m) => m.includes('konnte nicht gespeichert werden') || m.includes('gibt es nicht mehr')), 'Keine verwirrende Fehlermeldung danach: ' + ann.slice(-3).join(' | '));
+await browser.close();

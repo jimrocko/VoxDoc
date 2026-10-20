@@ -86,6 +86,7 @@ Anschließend in Safari über „Teilen“ → „Zum Home-Bildschirm“ install
 | `npm run preview:https` | Produktions-Build über HTTPS ausliefern              |
 | `npm run typecheck`     | Nur TypeScript-Typprüfung                            |
 | `npm test`              | Unit-Tests mit Vitest (inkl. echter Texterkennung)   |
+| `npm run test:browser`  | Browser-Testreihen gegen den Produktions-Build (siehe [Prüfprotokoll](docs/Pruefprotokoll.md)) |
 
 ## Projektstruktur
 
@@ -116,7 +117,9 @@ Anschließend in Safari über „Teilen“ → „Zum Home-Bildschirm“ install
 │   ├── search.ts           Volltextsuche
 │   ├── dom.ts, format.ts   DOM-Helfer, deutsche Datums- und Zahlenformate
 │   └── styles.css          Dunkles, minimalistisches Design
-├── tests/                  Unit-Tests (Vitest), inkl. echter Texterkennung auf Testbildern (fixtures/)
+├── tests/                  Unit-Tests (Vitest), inkl. echter Texterkennung auf Testbildern (fixtures/);
+│                           browser/ = Browser-Testreihen (Playwright, axe-core) mit run.mjs
+├── docs/Pruefprotokoll.md  Gesamtprüfung: bestandene Tests, offene Probleme, Praxistests auf dem iPhone
 ├── vite.config.ts          Vite- und PWA-Konfiguration (Manifest)
 └── tsconfig.json
 ```

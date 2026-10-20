@@ -106,7 +106,9 @@ export async function loadOcrAssets(onProgress?: AssetProgress): Promise<OcrAsse
   }
   const urls = await requiredUrls();
   const cache = await openCache();
-  void removeStaleAssets(cache);
+  removeStaleAssets(cache).catch(() => {
+    // Aufräumen ist optional; alte Dateien stören die Erkennung nicht.
+  });
   const total = urls.reduce((sum, url) => sum + (APPROX_BYTES[url] ?? 0), 0);
   const loaded = urls.map(() => 0);
   const report = (index: number) => (bytes: number) => {
