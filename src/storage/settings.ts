@@ -13,6 +13,8 @@ export interface Settings {
   speakStatus: boolean;
   /** Beim Springen zwischen Absätzen „Absatz 3 von 5“ ansagen. */
   announceParagraphs: boolean;
+  /** Scanner löst aus, sobald das Blatt ruhig und vollständig im Bild ist. */
+  autoCapture: boolean;
   librarySort: LibrarySort;
 }
 
@@ -26,6 +28,7 @@ export const defaults: Settings = {
   tones: true,
   speakStatus: false,
   announceParagraphs: true,
+  autoCapture: true,
   librarySort: 'newest',
 };
 
@@ -49,6 +52,7 @@ export function sanitize(raw: unknown): Settings {
     speakStatus: typeof input.speakStatus === 'boolean' ? input.speakStatus : defaults.speakStatus,
     announceParagraphs:
       typeof input.announceParagraphs === 'boolean' ? input.announceParagraphs : defaults.announceParagraphs,
+    autoCapture: typeof input.autoCapture === 'boolean' ? input.autoCapture : defaults.autoCapture,
     librarySort: oneOf(input.librarySort, ['newest', 'oldest', 'title'], defaults.librarySort),
   };
 }

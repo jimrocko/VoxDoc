@@ -4,22 +4,45 @@ export interface VoxDocument {
   title: string;
   /** Erkannter oder selbst eingegebener Text. */
   text: string;
-  image: Blob | null;
+  /** Fotos der Seiten in Lesereihenfolge. */
+  pages: Blob[];
   createdAt: number;
   updatedAt: number;
 }
 
 const DB_NAME = 'voxdoc';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = 'documents';
+
+type StoredDocument = Omit<VoxDocument, 'pages'> & { pages?: Blob[]; image?: Blob | null };
+
+/** Bringt auch Datensätze im alten Format in die aktuelle Form. */
+function normalize(stored: StoredDocument): VoxDocument {
+  const { image, pages, ...rest } = stored;
+  return { ...rest, pages: pages ?? (image ? [image] : []) };
+}
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
 function openDb(): Promise<IDBDatabase> {
   dbPromise ??= new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
-      request.result.createObjectStore(STORE, { keyPath: 'id' });
+    request.onupgradeneeded = (event) => {
+      if (event.oldVersion < 1) {
+        request.result.createObjectStore(STORE, { keyPath: 'id' });
+        return;
+      }
+      if (event.oldVersion < 2) {
+        // Version 1 kannte nur ein Foto pro Dokument (`image`).
+        const store = request.transaction!.objectStore(STORE);
+        store.openCursor().onsuccess = (cursorEvent) => {
+          const cursor = (cursorEvent.target as IDBRequest<IDBCursorWithValue | null>).result;
+          if (cursor) {
+            cursor.update(normalize(cursor.value));
+            cursor.continue();
+          }
+        };
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => {
@@ -43,15 +66,16 @@ async function run<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) 
 
 /** Alle Dokumente, neueste zuerst. */
 export async function listDocuments(): Promise<VoxDocument[]> {
-  const documents = await run('readonly', (store) => store.getAll() as IDBRequest<VoxDocument[]>);
-  return documents.sort((a, b) => b.createdAt - a.createdAt);
+  const stored = await run('readonly', (store) => store.getAll() as IDBRequest<StoredDocument[]>);
+  return stored.map(normalize).sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function getDocument(id: string): Promise<VoxDocument | undefined> {
-  return run('readonly', (store) => store.get(id) as IDBRequest<VoxDocument | undefined>);
+  const stored = await run('readonly', (store) => store.get(id) as IDBRequest<StoredDocument | undefined>);
+  return stored && normalize(stored);
 }
 
-export async function createDocument(fields: Pick<VoxDocument, 'title' | 'image'>): Promise<VoxDocument> {
+export async function createDocument(fields: Pick<VoxDocument, 'title' | 'pages'>): Promise<VoxDocument> {
   const now = Date.now();
   const doc: VoxDocument = { id: crypto.randomUUID(), text: '', createdAt: now, updatedAt: now, ...fields };
   await run('readwrite', (store) => store.add(doc));

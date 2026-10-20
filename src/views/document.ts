@@ -8,20 +8,22 @@ import { section, viewHeader, type View } from './components.ts';
 import { notFoundView } from './not-found.ts';
 import { readerPanel, type ReaderPanel } from './reader-panel.ts';
 
-function shareFile(doc: VoxDocument): File | null {
-  if (!doc.image) {
-    return null;
-  }
-  const name = `${doc.title.replace(/[\\/:*?"<>|]+/g, '-')}.jpg`;
-  return new File([doc.image], name, { type: doc.image.type || 'image/jpeg' });
+function shareFiles(doc: VoxDocument): File[] {
+  const base = doc.title.replace(/[\\/:*?"<>|]+/g, '-');
+  return doc.pages.map(
+    (page, index) =>
+      new File([page], doc.pages.length > 1 ? `${base} – Seite ${index + 1}.jpg` : `${base}.jpg`, {
+        type: page.type || 'image/jpeg',
+      }),
+  );
 }
 
 function canShare(doc: VoxDocument): boolean {
   if (typeof navigator.share !== 'function') {
     return false;
   }
-  const file = shareFile(doc);
-  return !file || !navigator.canShare || navigator.canShare({ files: [file] });
+  const files = shareFiles(doc);
+  return files.length === 0 || !navigator.canShare || navigator.canShare({ files });
 }
 
 export async function documentView(id: string): Promise<View> {
@@ -30,7 +32,7 @@ export async function documentView(id: string): Promise<View> {
     return notFoundView('Dieses Dokument gibt es nicht mehr. Vielleicht wurde es gelöscht.');
   }
   let doc: VoxDocument = found;
-  const imageUrl = doc.image ? URL.createObjectURL(doc.image) : null;
+  const pageUrls = doc.pages.map((page) => URL.createObjectURL(page));
 
   const header = viewHeader(doc.title, h('p', { class: 'view-intro' }, `Gescannt am ${spokenDate(doc.createdAt)}.`));
   const title = header.querySelector('h1') as HTMLHeadingElement;
@@ -151,12 +153,12 @@ export async function documentView(id: string): Promise<View> {
           type: 'button',
           class: 'button button-secondary',
           onclick: async () => {
-            const file = shareFile(doc);
+            const files = shareFiles(doc);
             try {
               await navigator.share({
                 title: doc.title,
                 ...(doc.text ? { text: doc.text } : {}),
-                ...(file ? { files: [file] } : {}),
+                ...(files.length > 0 ? { files } : {}),
               });
             } catch (error) {
               if ((error as DOMException).name !== 'AbortError') {
@@ -199,14 +201,21 @@ export async function documentView(id: string): Promise<View> {
       h('div', { class: 'button-stack' }, editButton, renameButton, shareButton),
       formHolder,
     ),
-    imageUrl
+    pageUrls.length > 0
       ? section(
           'photo-heading',
-          'Foto',
-          h(
-            'figure',
-            { class: 'doc-photo' },
-            h('img', { src: imageUrl, alt: `Foto des Dokuments „${doc.title}“`, decoding: 'async' }),
+          pageUrls.length === 1 ? 'Foto' : `Fotos (${pageUrls.length} Seiten)`,
+          ...pageUrls.map((url, index) =>
+            h(
+              'figure',
+              { class: 'doc-photo' },
+              h('img', {
+                src: url,
+                alt: pageUrls.length === 1 ? `Foto des Dokuments „${doc.title}“` : `Foto von Seite ${index + 1}`,
+                decoding: 'async',
+              }),
+              pageUrls.length > 1 ? h('figcaption', null, `Seite ${index + 1} von ${pageUrls.length}`) : null,
+            ),
           ),
         )
       : null,
@@ -218,9 +227,7 @@ export async function documentView(id: string): Promise<View> {
     element,
     destroy: () => {
       reader?.destroy();
-      if (imageUrl) {
-        URL.revokeObjectURL(imageUrl);
-      }
+      pageUrls.forEach((url) => URL.revokeObjectURL(url));
     },
   };
 }

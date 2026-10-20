@@ -4,14 +4,16 @@ Barrierefreie Dokumentenerkennung für blinde und sehbehinderte Menschen, gebaut
 Progressive Web App (PWA) für das iPhone. VoxDoc soll Dokumente mit der Kamera erfassen,
 den Text erkennen und vorlesen.
 
-> **Status:** Grundoberfläche fertig – Scannen per Kamera, Bibliothek, Suche, Vorlesen,
+> **Status:** Grundoberfläche fertig – Scannen mit Live-Kamera und Sprachführung, Bibliothek, Suche, Vorlesen,
 > Einstellungen und Hilfe funktionieren. Die automatische Texterkennung (OCR) folgt; bis
 > dahin kann der Text eines Dokuments eingegeben oder diktiert werden.
 
 ## Funktionen
 
-- **Dokument scannen** – öffnet die Rückkamera des iPhones (oder die Mediathek). Fotos werden
-  auf höchstens 2400 Pixel verkleinert und lokal gespeichert.
+- **Dokument scannen** – Live-Kamera mit Sprachführung und automatischer Auslösung, mehrere
+  Seiten pro Dokument, Seiten neu aufnehmen oder entfernen. Alternativ Kamera-App oder Mediathek
+  (siehe [Dokumentenscanner](#dokumentenscanner)). Fotos werden auf höchstens 2400 Pixel verkleinert
+  und lokal gespeichert.
 - **Bibliothek** – alle Dokumente, sortierbar nach Datum oder Name.
 - **Dokument** – Vorlesen, Text bearbeiten/diktieren, Umbenennen, Teilen (iOS-Teilen-Menü), Löschen.
 - **Vorlesen** – Pause und Fortsetzen am zuletzt gesprochenen Wort, vorheriger/nächster Absatz,
@@ -87,10 +89,11 @@ Anschließend in Safari über „Teilen“ → „Zum Home-Bildschirm“ install
 │   ├── main.ts             Einstiegspunkt, Service Worker, Audio-Freigabe
 │   ├── app.ts              Routing, Fokus-Steuerung, Farbschema, Online-Status
 │   ├── router.ts           Hash-Router (#/, #/bibliothek, #/suche, …)
-│   ├── views/              Ansichten: Start, Bibliothek, Dokument, Suche, Einstellungen, Hilfe;
+│   ├── views/              Ansichten: Start, Scanner, Bibliothek, Dokument, Suche, Einstellungen, Hilfe;
 │   │                       reader-panel.ts = Bedienfeld fürs Vorlesen
 │   ├── reader/             Vorlese-Logik (reader.ts) und Text-Aufteilung (text.ts)
-│   ├── scan/               Kamera-Aufnahme und Bildverkleinerung
+│   ├── scan/               Scanner: Kamera (camera.ts), Bildanalyse (analyze.ts), Sprachführung
+│   │                       (guidance.ts), Seiten des laufenden Scans (session.ts), Dateiauswahl (scan.ts)
 │   ├── storage/            Dokumente (IndexedDB) und Einstellungen (localStorage)
 │   ├── audio/              Sprachausgabe (Web Speech API) und Signaltöne (Web Audio)
 │   ├── a11y/announcer.ts   Ansagen für VoiceOver über eine Live-Region
@@ -135,10 +138,103 @@ Barrierefreiheit ist die Grundlage von VoxDoc, nicht ein Zusatz. Bereits umgeset
 3. Rotor (Zwei-Finger-Drehgeste) auf „Überschriften“ stellen und prüfen, ob die Struktur stimmt.
 4. Ein Dokument mit Text öffnen, „Vorlesen“ doppeltippen, dann „Pause“, „Nächster Absatz“ und
    „Schneller“ ausprobieren. Während des Vorlesens darf VoiceOver nichts zusätzlich ansagen.
-5. „Dokument scannen“ aktivieren, ein Foto aufnehmen – nach dem Speichern ertönt ein
-   aufsteigender Ton, VoiceOver sagt „Dokument gespeichert“ an und liest die Überschrift des Dokuments.
+5. „Dokument scannen“ aktivieren, Kamerazugriff erlauben und den Ansagen folgen, bis Takt-Töne und
+   Auslösegeräusch kommen. Eine zweite Seite hinlegen, dann „Seite 1 neu aufnehmen“ und
+   „Seite 2 entfernen“ ausprobieren und das Dokument speichern.
 6. Über die Tab-Leiste zwischen den Bereichen wechseln und prüfen, dass jeweils die neue
    Überschrift angesagt wird.
+
+## Dokumentenscanner
+
+Erreichbar über „Dokument scannen“ auf der Startseite (`#/scannen`).
+
+### Ablauf
+
+1. Die Rückkamera startet über `getUserMedia` (`facingMode: environment`). Beim ersten Mal fragt
+   iOS nach der Erlaubnis; dauert das länger als 1,5 Sekunden, sagt VoxDoc an, dass die Abfrage
+   bestätigt werden muss.
+2. Viermal pro Sekunde wird ein verkleinertes Bild (96 Pixel breit) analysiert. Daraus entsteht ein
+   Hinweis, der angesagt wird: „Kein Dokument zu sehen“, „Bewege das iPhone etwas nach links“,
+   „Zu nah“, „Zu weit weg“, „Halte das iPhone ruhig“, „Zu dunkel“, „Dokument erkannt“.
+3. Ist das Blatt vollständig, mittig und ruhig im Bild, zählen Takt-Töne 1,5 Sekunden herunter, dann
+   ertönt ein Auslösegeräusch und die Seite ist aufgenommen (abschaltbar; dann „Seite aufnehmen“ tippen).
+4. Dieselbe Seite wird nicht zweimal aufgenommen: Erst wenn das Blatt entfernt oder ein anderes
+   hingelegt wurde, löst der Scanner wieder automatisch aus.
+5. Jede Seite steht in der Liste „Erfasste Seiten“ mit „Seite N neu aufnehmen“ und „Seite N entfernen“.
+6. „Dokument speichern“ legt alle Seiten als ein Dokument an. Die Seiten des laufenden Scans bleiben
+   beim Wechsel in einen anderen Tab erhalten, bis gespeichert oder „Scan verwerfen“ gewählt wird.
+
+### Audioführung
+
+- Hinweise werden über die Live-Region angesagt (VoiceOver) und, wenn „Statusmeldungen vorlesen“
+  eingeschaltet ist, zusätzlich gesprochen.
+- Ein Hinweis wird erst angesagt, wenn er 0,7 Sekunden stabil ist (kein Flackern), mit mindestens
+  1,5 Sekunden Abstand zur vorigen Ansage, und unverändert höchstens alle 6 Sekunden wiederholt.
+  „Dokument erkannt“ und „Lege die nächste Seite hin“ kommen nur einmal.
+- Töne: Takt (hoch, kurz) während der Auslösung, Auslöser (zweitönig absteigend), Erfolg/Fehler wie
+  im Rest der App. Alle Töne folgen der Einstellung „Signaltöne“.
+- „Links/rechts“ bezieht sich auf das iPhone, „Richtung Oberkante/Unterkante“ auf die Kanten des iPhones.
+- Ein gelber Rahmen zeigt das erkannte Blatt für Menschen mit Sehrest. Das Video selbst ist für
+  VoiceOver ausgeblendet; der aktuelle Hinweis ist per `aria-describedby` mit dem Auslöser verbunden.
+- Mit Taschenlampe (falls Gerät und Browser sie anbieten): Knopf „Licht“.
+
+### Kameraberechtigungen und Fehler
+
+Jeder Fehler erscheint als Abschnitt mit Überschrift, die beim erneuten Versuch den Fokus erhält, und
+wird angesagt. Die Alternativen bleiben immer erreichbar.
+
+| Situation                         | Meldung / Ausweg                                                    |
+| --------------------------------- | ------------------------------------------------------------------- |
+| Zugriff abgelehnt (`NotAllowedError`, auch vorab per Permissions API) | Erklärt den Weg in Safari bzw. den iPhone-Einstellungen; „Kamera erneut versuchen“ |
+| Abfrage noch offen                | „Bitte erlaube VoxDoc den Zugriff auf die Kamera …“                 |
+| Kamera belegt (`NotReadableError`) | Andere App beenden; „Kamera erneut versuchen“                      |
+| Keine Kamera (`NotFoundError`)    | Hinweis; nur Alternativen                                           |
+| Unpassende Einstellungen (`OverconstrainedError`) | automatischer zweiter Versuch mit `video: true`      |
+| Kein HTTPS / kein `getUserMedia`  | Hinweis; nur Alternativen                                           |
+| App im Hintergrund                | Kamera wird gestoppt und beim Zurückkehren neu gestartet            |
+
+### Alternative ohne Live-Kamera
+
+- „Foto mit der Kamera-App aufnehmen“ – `<input type="file" accept="image/*" capture="environment">`
+  öffnet die iOS-Kamera; das Foto wird eine Seite (bei „neu aufnehmen“: ersetzt die Seite).
+- „Fotos aus der Mediathek wählen“ – Mehrfachauswahl; jedes Foto wird eine Seite.
+- Auf der Startseite legt „Fotos aus der Mediathek wählen“ direkt ein Dokument aus den Fotos an.
+
+### Einschränkungen
+
+- **Nicht auf einem echten iPhone getestet.** Getestet wurde in Chromium mit einer simulierten Kamera
+  (Videodatei als Kamerabild, siehe unten), mit Unit-Tests auf synthetischen Bildern und mit echten
+  Datei-Dialogen. Belichtung, Autofokus und Bildrauschen einer echten iPhone-Kamera können die
+  Erkennung anders beeinflussen; die Schwellwerte in `guidance.ts` müssen ggf. angepasst werden.
+- **Einfache Blatterkennung:** Erkannt wird ein heller Bereich auf dunklerem Untergrund (Otsu-Schwellwert
+  und Zeilen-/Spaltenprojektion), keine echte Kanten- oder Perspektiverkennung. Ein weißes Blatt auf
+  hellem Tisch wird nicht zuverlässig erkannt; die Hilfe empfiehlt eine dunkle Unterlage.
+- **Keine Schärfeprüfung.** Unschärfe wird nur indirekt über Bewegung erkannt; ein ruhiges, aber
+  unscharfes Bild (z. B. zu nah für den Autofokus) wird trotzdem aufgenommen.
+- **Kein Zuschneiden und Entzerren:** Gespeichert wird das ganze Kamerabild.
+- **Auflösung:** VoxDoc fordert bis zu 1920 Pixel an; ein Videobild hat in der Regel weniger Auflösung
+  als ein Foto der Kamera-App. Für sehr kleine Schrift ist „Foto mit der Kamera-App aufnehmen“ besser.
+- **Licht-Knopf** erscheint nur, wenn `getCapabilities()` eine Taschenlampe meldet; in iOS Safari ist
+  das je nach Version nicht der Fall.
+- **Kamerazugriff in der Home-Bildschirm-App:** iOS fragt bei installierten Web-Apps je nach Version bei
+  jedem Start erneut nach der Erlaubnis.
+- **„Zu dunkel“ ohne Blatt** wird nur bei fast schwarzem Bild angesagt, weil ein dunkler Tisch sonst
+  mit Lichtmangel verwechselt würde. Das iPhone hellt dunkle Szenen zudem automatisch auf.
+- Bestehende Dokumente (ein Foto) werden beim ersten Start automatisch in das neue Seitenformat
+  übernommen (IndexedDB-Version 2). Seiten eines gespeicherten Dokuments lassen sich noch nicht
+  nachträglich ergänzen.
+
+### Kamera im Browser-Test simulieren
+
+Chromium kann eine Y4M-Videodatei als Kamera ausgeben:
+
+```bash
+chromium --use-fake-device-for-media-stream --use-fake-ui-for-media-stream \
+  --use-file-for-fake-video-capture=/pfad/zu/dokument.y4m
+```
+
+Damit lassen sich Szenen wie „Blatt ragt links heraus“, „Blatt liegt ruhig“ oder „Blatt entfernt“
+reproduzierbar durchspielen. `--deny-permission-prompts` simuliert einen abgelehnten Kamerazugriff.
 
 ## Vorlesefunktion
 
@@ -224,7 +320,8 @@ verringert Überschneidungen so:
 ## Nächste Schritte
 
 - Texterkennung (OCR) im Browser, Ergebnis landet im Textfeld des Dokuments
-- Live-Kamera (`getUserMedia`) mit gesprochener Ausrichtungshilfe
+- Zuschneiden und Entzerren der Seiten, Schärfeprüfung
+- Seiten zu einem gespeicherten Dokument hinzufügen
 - Automatisierte Ende-zu-Ende- und Barrierefreiheitstests (z. B. Playwright + axe-core) im Repository
 
 ## Lizenz

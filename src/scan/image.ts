@@ -30,7 +30,47 @@ export async function prepareImage(file: Blob): Promise<Blob> {
     return file;
   }
   context.drawImage(img, 0, 0, canvas.width, canvas.height);
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(blob ?? file), 'image/jpeg', JPEG_QUALITY);
+  return encode(canvas).catch(() => file);
+}
+
+function encode(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error('Bild konnte nicht erzeugt werden'))),
+      'image/jpeg',
+      JPEG_QUALITY,
+    );
   });
+}
+
+/** Nimmt das aktuelle Kamerabild in voller Auflösung (höchstens MAX_EDGE) auf. */
+export function captureVideoFrame(video: HTMLVideoElement): Promise<Blob> {
+  const scale = Math.min(1, MAX_EDGE / Math.max(video.videoWidth, video.videoHeight));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(video.videoWidth * scale);
+  canvas.height = Math.round(video.videoHeight * scale);
+  canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return encode(canvas);
+}
+
+/** Breite der Miniatur für die Bildanalyse – klein genug für mehrere Analysen pro Sekunde. */
+const SAMPLE_WIDTH = 96;
+
+/** Verkleinertes Vorschaubild für die Analyse; wiederverwendet eine Leinwand. */
+export function sampleVideoFrame(video: HTMLVideoElement, canvas: HTMLCanvasElement): ImageData | null {
+  if (!video.videoWidth || !video.videoHeight) {
+    return null;
+  }
+  const width = SAMPLE_WIDTH;
+  const height = Math.round((SAMPLE_WIDTH * video.videoHeight) / video.videoWidth);
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) {
+    return null;
+  }
+  context.drawImage(video, 0, 0, width, height);
+  return context.getImageData(0, 0, width, height);
 }

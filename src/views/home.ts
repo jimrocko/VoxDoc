@@ -2,7 +2,6 @@ import { h } from '../dom.ts';
 import { countLabel } from '../format.ts';
 import { isIos, isStandalone } from '../platform.ts';
 import { href } from '../router.ts';
-import { startScan } from '../scan/scan.ts';
 import { listDocuments } from '../storage/documents.ts';
 import { documentList, scanButtons, section, viewHeader, type View } from './components.ts';
 
@@ -16,7 +15,7 @@ export async function homeView(): Promise<View> {
     'div',
     { class: 'view' },
     viewHeader('VoxDoc', 'Dokumente scannen, sammeln und vorlesen lassen.'),
-    h('div', { class: 'card card-hero' }, scanButtons(startScan, 'scan-hint')),
+    h('div', { class: 'card card-hero' }, scanButtons('scan-hint')),
     isIos() && !isStandalone()
       ? section(
           'install-heading',

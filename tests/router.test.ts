@@ -24,3 +24,11 @@ describe('router', () => {
     expect(tabFor({ name: 'notFound' })).toBeNull();
   });
 });
+
+describe('router: Scanner', () => {
+  it('kennt die Scan-Seite', () => {
+    expect(parseHash('#/scannen')).toEqual({ name: 'scan' });
+    expect(href({ name: 'scan' })).toBe('#/scannen');
+    expect(tabFor({ name: 'scan' })).toBe('start');
+  });
+});

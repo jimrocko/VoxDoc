@@ -4,10 +4,11 @@ export type Route =
   | { name: 'search' }
   | { name: 'settings' }
   | { name: 'help' }
+  | { name: 'scan' }
   | { name: 'document'; id: string }
   | { name: 'notFound' };
 
-/** Tabs der Hauptnavigation; ein Dokument gehört zur Bibliothek. */
+/** Tabs der Hauptnavigation; ein Dokument gehört zur Bibliothek, der Scanner zum Start. */
 export type Tab = 'start' | 'library' | 'search' | 'settings' | 'help';
 
 const paths: Record<Tab, string> = {
@@ -20,6 +21,9 @@ const paths: Record<Tab, string> = {
 
 export function parseHash(hash: string): Route {
   const [first = '', second, ...rest] = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  if (first === 'scannen' && second === undefined) {
+    return { name: 'scan' };
+  }
   if (first === 'dokument' && second && rest.length === 0) {
     return { name: 'document', id: decodeURIComponent(second) };
   }
@@ -36,6 +40,8 @@ export function href(route: Route): string {
       return `#/dokument/${encodeURIComponent(route.id)}`;
     case 'notFound':
       return '#/';
+    case 'scan':
+      return '#/scannen';
     default:
       return `#/${paths[route.name]}`;
   }
@@ -44,6 +50,9 @@ export function href(route: Route): string {
 export function tabFor(route: Route): Tab | null {
   if (route.name === 'document') {
     return 'library';
+  }
+  if (route.name === 'scan') {
+    return 'start';
   }
   return route.name === 'notFound' ? null : route.name;
 }

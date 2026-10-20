@@ -1,6 +1,7 @@
 import { h, type Child } from '../dom.ts';
 import { spokenDate } from '../format.ts';
 import { href } from '../router.ts';
+import { importFromPhotos } from '../scan/scan.ts';
 import type { VoxDocument } from '../storage/documents.ts';
 
 export interface View {
@@ -42,7 +43,8 @@ const chevron = (): SVGElement => {
 };
 
 export function documentMeta(doc: VoxDocument): string {
-  return `${spokenDate(doc.createdAt)} · ${doc.text.trim() ? 'mit Text' : 'noch ohne Text'}`;
+  const pages = doc.pages.length > 1 ? ` · ${doc.pages.length} Seiten` : '';
+  return `${spokenDate(doc.createdAt)}${pages} · ${doc.text.trim() ? 'mit Text' : 'noch ohne Text'}`;
 }
 
 export function documentList(
@@ -73,29 +75,24 @@ export function documentList(
   );
 }
 
-export function scanButtons(onScan: (source: 'camera' | 'photos') => void, hintId: string): HTMLElement {
+export function scanButtons(hintId: string): HTMLElement {
   return h(
     'div',
     { class: 'scan-actions' },
     h(
-      'button',
-      {
-        type: 'button',
-        class: 'button button-primary button-hero',
-        'aria-describedby': hintId,
-        onclick: () => onScan('camera'),
-      },
+      'a',
+      { class: 'button button-primary button-hero', href: href({ name: 'scan' }), 'aria-describedby': hintId },
       'Dokument scannen',
     ),
     h(
       'p',
       { id: hintId, class: 'hint' },
-      'Öffnet die Kamera. Lege das Dokument auf eine helle, ebene Fläche und halte das iPhone etwa 30 Zentimeter darüber.',
+      'Öffnet die Kamera mit Sprachführung. Mehrere Seiten sind möglich. Lege das Dokument auf eine dunkle, ebene Fläche mit gutem Licht.',
     ),
     h(
       'button',
-      { type: 'button', class: 'button button-secondary', onclick: () => onScan('photos') },
-      'Foto aus der Mediathek wählen',
+      { type: 'button', class: 'button button-secondary', onclick: () => importFromPhotos() },
+      'Fotos aus der Mediathek wählen',
     ),
   );
 }

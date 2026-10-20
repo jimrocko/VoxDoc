@@ -8,6 +8,7 @@ import { helpView } from './views/help.ts';
 import { homeView } from './views/home.ts';
 import { libraryView } from './views/library.ts';
 import { notFoundView } from './views/not-found.ts';
+import { scannerView } from './views/scanner.ts';
 import { searchView } from './views/search.ts';
 import { settingsView } from './views/settings.ts';
 
@@ -23,6 +24,8 @@ function loadView(route: Route): View | Promise<View> {
       return settingsView();
     case 'help':
       return helpView();
+    case 'scan':
+      return scannerView();
     case 'document':
       return documentView(route.id);
     case 'notFound':

@@ -13,12 +13,37 @@ export function helpView(): View {
       section(
         'help-scan',
         'Ein Dokument scannen',
-        h('p', null, 'Tippe auf der Startseite auf „Dokument scannen“. Die Kamera öffnet sich, und du kannst ein Foto aufnehmen.'),
+        h(
+          'p',
+          null,
+          'Tippe auf der Startseite auf „Dokument scannen“. Beim ersten Mal fragt das iPhone, ob VoxDoc die Kamera verwenden darf – wähle „Erlauben“. VoxDoc sagt dir dann, wie du das iPhone halten sollst.',
+        ),
         list(
-          'Lege das Dokument auf eine ebene, helle Fläche mit gutem Licht.',
-          'Halte das iPhone flach, etwa 30 Zentimeter über die Mitte des Dokuments.',
-          'Mit VoiceOver: Wähle den Auslöser aus und doppeltippe. Danach „Foto benutzen“ wählen.',
-          'Nach dem Speichern hörst du einen aufsteigenden Ton, und das Dokument wird geöffnet.',
+          'Lege das Blatt auf eine dunkle, ebene Fläche, zum Beispiel einen dunklen Tisch. Ein weißes Blatt auf weißem Untergrund wird nicht erkannt.',
+          'Sorge für gleichmäßiges Licht ohne starke Schatten.',
+          'Halte das iPhone flach, mit dem Bildschirm nach oben, etwa 30 Zentimeter über der Mitte des Blatts.',
+          'Folge den Ansagen: „nach links“ und „nach rechts“ beziehen sich auf das iPhone; „Richtung Oberkante“ heißt, das iPhone in die Richtung seiner oberen Kante zu schieben.',
+          'Sobald das Blatt vollständig und ruhig im Bild ist, hörst du schnelle Takt-Töne und dann ein Auslösegeräusch. Die Seite ist aufgenommen.',
+          'Für die nächste Seite lege einfach das neue Blatt hin. Dieselbe Seite wird nicht zweimal aufgenommen.',
+          'Ohne automatische Auslösung tippst du selbst auf „Seite aufnehmen“, wenn „Dokument erkannt“ angesagt wird.',
+        ),
+      ),
+      section(
+        'help-pages',
+        'Seiten prüfen und speichern',
+        list(
+          'Unter „Erfasste Seiten“ steht jede Seite mit den Knöpfen „neu aufnehmen“ und „entfernen“.',
+          'Bei „neu aufnehmen“ ersetzt die nächste Aufnahme genau diese Seite.',
+          '„Dokument speichern“ legt alle Seiten als ein Dokument in der Bibliothek ab. Verlässt du den Scanner vorher, bleiben die Seiten erhalten, bis du speicherst oder „Scan verwerfen“ wählst.',
+        ),
+      ),
+      section(
+        'help-camera-problems',
+        'Wenn die Kamera nicht startet',
+        list(
+          'Hast du den Kamerazugriff abgelehnt, sagt VoxDoc dir, wo du ihn in den Einstellungen wieder erlaubst.',
+          'Ist die Kamera belegt, etwa durch einen Anruf, beende die andere App und tippe auf „Kamera erneut versuchen“.',
+          'Es geht immer auch ohne Live-Kamera: „Foto mit der Kamera-App aufnehmen“ öffnet die normale iPhone-Kamera, „Fotos aus der Mediathek wählen“ übernimmt vorhandene Fotos. Jedes Foto wird eine Seite.',
         ),
       ),
       section(

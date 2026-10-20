@@ -11,9 +11,9 @@ import {
 
 describe('Dokumentspeicher', () => {
   it('legt an, ändert, listet und löscht Dokumente', async () => {
-    const first = await createDocument({ title: 'Erstes', image: null });
+    const first = await createDocument({ title: 'Erstes', pages: [] });
     await new Promise((resolve) => setTimeout(resolve, 2));
-    const second = await createDocument({ title: 'Zweites', image: null });
+    const second = await createDocument({ title: 'Zweites', pages: [] });
 
     expect((await listDocuments()).map((doc) => doc.id)).toEqual([second.id, first.id]);
 

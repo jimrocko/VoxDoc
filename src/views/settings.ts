@@ -152,6 +152,23 @@ function feedbackSection(): HTMLElement {
   );
 }
 
+function scannerSection(): HTMLElement {
+  return section(
+    'scanner-heading',
+    'Scanner',
+    toggle(
+      'settings-auto-capture',
+      'Automatisch auslösen',
+      'Der Scanner nimmt eine Seite auf, sobald sie vollständig und ruhig im Bild ist.',
+      getSettings().autoCapture,
+      (autoCapture) => {
+        updateSettings({ autoCapture });
+        status(autoCapture ? 'Automatisch auslösen an.' : 'Automatisch auslösen aus.');
+      },
+    ),
+  );
+}
+
 function themeSection(): HTMLElement {
   const current = getSettings().theme;
   return section(
@@ -245,6 +262,7 @@ export async function settingsView(): Promise<View> {
       viewHeader('Einstellungen'),
       speech.element,
       feedbackSection(),
+      scannerSection(),
       themeSection(),
       await storageSection(),
       aboutSection(),

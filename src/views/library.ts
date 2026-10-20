@@ -1,7 +1,6 @@
 import { h } from '../dom.ts';
 import { status } from '../feedback.ts';
 import { countLabel } from '../format.ts';
-import { startScan } from '../scan/scan.ts';
 import { listDocuments, type VoxDocument } from '../storage/documents.ts';
 import { getSettings, updateSettings, type LibrarySort } from '../storage/settings.ts';
 import { documentList, scanButtons, viewHeader, type View } from './components.ts';
@@ -36,7 +35,7 @@ export async function libraryView(): Promise<View> {
         { class: 'view' },
         viewHeader('Bibliothek', 'Hier findest du alle gescannten Dokumente.'),
         h('p', { class: 'empty' }, 'Deine Bibliothek ist noch leer.'),
-        scanButtons(startScan, 'library-scan-hint'),
+        scanButtons('library-scan-hint'),
       ),
     };
   }
