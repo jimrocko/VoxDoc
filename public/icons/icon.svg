@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="VoxDoc">
+  <rect width="512" height="512" rx="112" fill="#0b3d91"/>
+  <path d="M136 96h160l80 80v240a24 24 0 0 1-24 24H136a24 24 0 0 1-24-24V120a24 24 0 0 1 24-24z" fill="#fff"/>
+  <path d="M296 96v56a24 24 0 0 0 24 24h56z" fill="#c9d8f5"/>
+  <g fill="none" stroke="#0b3d91" stroke-width="22" stroke-linecap="round">
+    <path d="M168 248h120M168 304h168M168 360h96"/>
+  </g>
+</svg>

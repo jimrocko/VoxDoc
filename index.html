@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="de" dir="ltr">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Kein maximum-scale / user-scalable=no: Zoomen muss möglich bleiben. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>VoxDoc – Dokumente vorlesen</title>
+    <meta
+      name="description"
+      content="Barrierefreie Dokumentenerkennung für blinde und sehbehinderte Menschen."
+    />
+
+    <meta name="theme-color" content="#0b3d91" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0f1a" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
+
+    <!-- iOS Home-Bildschirm -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="VoxDoc" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="format-detection" content="telephone=no" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Zum Inhalt springen</a>
+
+    <header class="app-header">
+      <h1 class="app-title">VoxDoc</h1>
+      <p class="app-tagline">Dokumente erkennen und vorlesen lassen</p>
+    </header>
+
+    <main id="main" class="app-main" tabindex="-1">
+      <section class="card" aria-labelledby="scan-heading">
+        <h2 id="scan-heading">Dokument erfassen</h2>
+        <p>
+          Halte dein iPhone über ein Dokument. VoxDoc wird den Text erkennen und
+          ihn dir vorlesen.
+        </p>
+        <button type="button" class="button button-primary" id="scan-button">
+          Dokument scannen
+        </button>
+        <p class="hint">Diese Funktion befindet sich noch in Entwicklung.</p>
+      </section>
+
+      <section class="card" id="install-card" aria-labelledby="install-heading" hidden>
+        <h2 id="install-heading">Als App installieren</h2>
+        <p>
+          Tippe in Safari auf „Teilen“ und wähle „Zum Home-Bildschirm“. VoxDoc
+          startet dann wie eine eigene App.
+        </p>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <p>
+        Version <span id="app-version"></span> ·
+        <span id="connection-state">Online</span>
+      </p>
+    </footer>
+
+    <!-- Live-Region für VoiceOver-Ansagen; muss von Anfang an im DOM sein. -->
+    <div id="announcer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
+
+    <noscript>
+      <p class="card">VoxDoc benötigt JavaScript. Bitte aktiviere JavaScript in den Safari-Einstellungen.</p>
+    </noscript>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

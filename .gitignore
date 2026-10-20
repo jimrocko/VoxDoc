@@ -1,0 +1,27 @@
+# Abhängigkeiten
+node_modules/
+
+# Build-Ausgabe
+dist/
+dev-dist/
+*.tsbuildinfo
+
+# Logs
+npm-debug.log*
+*.log
+
+# Umgebungsvariablen
+.env
+.env.*
+!.env.example
+
+# Editor & Betriebssystem
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Lokale Zertifikate
+*.pem
