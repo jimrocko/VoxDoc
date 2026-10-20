@@ -11,6 +11,8 @@ export interface Settings {
   tones: boolean;
   /** Statusmeldungen zusätzlich selbst vorlesen (für Nutzung ohne VoiceOver). */
   speakStatus: boolean;
+  /** Beim Springen zwischen Absätzen „Absatz 3 von 5“ ansagen. */
+  announceParagraphs: boolean;
   librarySort: LibrarySort;
 }
 
@@ -23,6 +25,7 @@ export const defaults: Settings = {
   voiceURI: '',
   tones: true,
   speakStatus: false,
+  announceParagraphs: true,
   librarySort: 'newest',
 };
 
@@ -44,6 +47,8 @@ export function sanitize(raw: unknown): Settings {
     voiceURI: typeof input.voiceURI === 'string' ? input.voiceURI : defaults.voiceURI,
     tones: typeof input.tones === 'boolean' ? input.tones : defaults.tones,
     speakStatus: typeof input.speakStatus === 'boolean' ? input.speakStatus : defaults.speakStatus,
+    announceParagraphs:
+      typeof input.announceParagraphs === 'boolean' ? input.announceParagraphs : defaults.announceParagraphs,
     librarySort: oneOf(input.librarySort, ['newest', 'oldest', 'title'], defaults.librarySort),
   };
 }

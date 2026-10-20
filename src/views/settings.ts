@@ -1,6 +1,7 @@
 import { germanVoices, onVoicesChanged, speak, speechSupported } from '../audio/speech.ts';
 import { playTone } from '../audio/tones.ts';
 import { h } from '../dom.ts';
+import { rateLabel } from '../reader/reader.ts';
 import { status } from '../feedback.ts';
 import { countLabel, megabytes } from '../format.ts';
 import { deleteAllDocuments, listDocuments } from '../storage/documents.ts';
@@ -18,10 +19,6 @@ const themeLabels: Record<Theme, string> = {
   light: 'Hell',
   system: 'Wie iPhone-Einstellung',
 };
-
-function rateText(rate: number): string {
-  return rate === 1 ? 'normal' : `${rate.toLocaleString('de-DE', { minimumFractionDigits: 1 })}-fach`;
-}
 
 /** Schalter: auf iOS 17.4+ als nativer Switch, sonst als Checkbox. */
 function toggle(id: string, label: string, description: string, checked: boolean, onChange: (value: boolean) => void): HTMLElement {
@@ -70,7 +67,7 @@ function speechSection(): { element: HTMLElement; destroy: () => void } {
   fillVoices();
   const stopListening = onVoicesChanged(fillVoices);
 
-  const rateOutput = h('output', { for: 'rate-input', id: 'rate-output' }, rateText(settings.speechRate));
+  const rateOutput = h('output', { for: 'rate-input', id: 'rate-output' }, rateLabel(settings.speechRate));
   const rateInput = h('input', {
     id: 'rate-input',
     type: 'range',
@@ -78,11 +75,11 @@ function speechSection(): { element: HTMLElement; destroy: () => void } {
     max: String(SPEECH_RATE_MAX),
     step: '0.1',
     value: String(settings.speechRate),
-    'aria-valuetext': rateText(settings.speechRate),
+    'aria-valuetext': rateLabel(settings.speechRate),
   });
   rateInput.addEventListener('input', () => {
     const rate = Math.round(Number(rateInput.value) * 10) / 10;
-    const text = rateText(rate);
+    const text = rateLabel(rate);
     rateOutput.textContent = text;
     rateInput.setAttribute('aria-valuetext', text);
     updateSettings({ speechRate: rate });
@@ -92,7 +89,7 @@ function speechSection(): { element: HTMLElement; destroy: () => void } {
     element: section(
       'speech-heading',
       'Sprachausgabe',
-      h('p', { class: 'hint' }, 'Gilt für „Vorlesen“ bei Dokumenten.'),
+      h('p', { class: 'hint' }, 'Gilt für das Vorlesen von Dokumenten. Das Tempo lässt sich auch beim Vorlesen ändern.'),
       h('div', { class: 'field' }, h('label', { for: 'voice-select' }, 'Stimme'), voiceSelect),
       h(
         'div',
@@ -108,6 +105,16 @@ function speechSection(): { element: HTMLElement; destroy: () => void } {
           onclick: () => speak('Hallo, ich bin VoxDoc. So klingt das Vorlesen mit dieser Einstellung.'),
         },
         'Sprachausgabe testen',
+      ),
+      toggle(
+        'announce-paragraphs-toggle',
+        'Absatznummer ansagen',
+        'Beim Springen zum vorherigen oder nächsten Absatz wird zuerst „Absatz 3 von 5“ gesprochen.',
+        settings.announceParagraphs,
+        (announceParagraphs) => {
+          updateSettings({ announceParagraphs });
+          status(announceParagraphs ? 'Absatznummer wird angesagt.' : 'Absatznummer wird nicht angesagt.');
+        },
       ),
     ),
     destroy: stopListening,

@@ -22,6 +22,17 @@ export function onVoicesChanged(listener: () => void): () => void {
   return () => speechSynthesis.removeEventListener('voiceschanged', listener);
 }
 
+/** Solange der Dokument-Leser spricht, gehört ihm die Sprachausgabe allein. */
+let readerActive = false;
+
+export function setReaderActive(active: boolean): void {
+  readerActive = active;
+}
+
+export function selectedVoice(voiceURI: string): SpeechSynthesisVoice | undefined {
+  return voiceURI ? germanVoices().find((voice) => voice.voiceURI === voiceURI) : undefined;
+}
+
 interface SpeakOptions {
   /** Laufende Ausgabe abbrechen (Standard) oder hinten anstellen. */
   interrupt?: boolean;
@@ -29,14 +40,14 @@ interface SpeakOptions {
 }
 
 export function speak(text: string, { interrupt = true, onEnd }: SpeakOptions = {}): boolean {
-  if (!speechSupported || !text.trim()) {
+  if (!speechSupported || !text.trim() || readerActive) {
     return false;
   }
   const { speechRate, voiceURI } = getSettings();
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = 'de-DE';
   utterance.rate = speechRate;
-  const voice = germanVoices().find((candidate) => candidate.voiceURI === voiceURI);
+  const voice = selectedVoice(voiceURI);
   if (voice) {
     utterance.voice = voice;
   }
@@ -49,16 +60,6 @@ export function speak(text: string, { interrupt = true, onEnd }: SpeakOptions = 
   }
   speechSynthesis.speak(utterance);
   return true;
-}
-
-export function stopSpeaking(): void {
-  if (speechSupported) {
-    speechSynthesis.cancel();
-  }
-}
-
-export function isSpeaking(): boolean {
-  return speechSupported && speechSynthesis.speaking;
 }
 
 /**

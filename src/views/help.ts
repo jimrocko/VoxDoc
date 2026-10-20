@@ -23,11 +23,34 @@ export function helpView(): View {
       ),
       section(
         'help-text',
-        'Text und Vorlesen',
+        'Text eingeben',
         h(
           'p',
           null,
-          'In einem geöffneten Dokument kannst du über „Text bearbeiten“ den Text eingeben oder mit der Diktierfunktion der Tastatur sprechen. „Vorlesen“ liest Name und Text des Dokuments mit der gewählten Stimme vor.',
+          'In einem geöffneten Dokument kannst du über „Text bearbeiten“ den Text eingeben oder mit der Diktierfunktion der Tastatur sprechen. Jede Zeile wird zu einem eigenen Absatz.',
+        ),
+      ),
+      section(
+        'help-reader',
+        'Vorlesen',
+        h('p', null, 'Im Bereich „Vorlesen“ eines Dokuments findest du diese Knöpfe:'),
+        list(
+          '„Vorlesen“ startet am Anfang. Während des Vorlesens heißt der Knopf „Pause“, danach „Fortsetzen“ – es geht beim zuletzt gesprochenen Wort weiter.',
+          '„Vorheriger Absatz“, „Absatz wiederholen“ und „Nächster Absatz“ lesen sofort den gewählten Absatz vor. Vorher wird „Absatz 3 von 5“ angesagt; das lässt sich in den Einstellungen ausschalten.',
+          '„Langsamer“ und „Schneller“ ändern das Tempo in kleinen Schritten. Beim Vorlesen sagt die Stimme das neue Tempo an und liest an derselben Stelle weiter.',
+          '„Vorlesen beenden“ hält an; der nächste Start beginnt wieder am Anfang.',
+          'Am Ende des Dokuments hörst du einen aufsteigenden Ton. Ein tiefer Ton bedeutet: Es gibt keinen weiteren Absatz oder das Tempo ist am Anschlag.',
+        ),
+      ),
+      section(
+        'help-reader-voiceover',
+        'Vorlesen zusammen mit VoiceOver',
+        list(
+          'VoiceOver und die Vorlesestimme sprechen unabhängig voneinander. Bleibe während des Vorlesens auf den Knöpfen, damit VoiceOver nicht gleichzeitig den Text liest.',
+          'Während des Vorlesens macht VoxDoc keine VoiceOver-Ansagen. Rückmeldungen kommen als Ton oder von der Vorlesestimme selbst.',
+          'Alternativ kannst du den Text mit VoiceOver selbst lesen: Wähle den ersten Absatz und wische mit zwei Fingern nach unten.',
+          'Wechselst du in eine andere App oder sperrst das iPhone, wird das Vorlesen pausiert. Mit „Fortsetzen“ geht es an derselben Stelle weiter.',
+          'Bessere Stimmen kannst du unter Einstellungen › Bedienungshilfen › Gesprochene Inhalte › Stimmen › Deutsch laden und danach in VoxDoc auswählen.',
         ),
       ),
       section(

@@ -1,11 +1,12 @@
-import { isSpeaking, speak, speechSupported, stopSpeaking } from '../audio/speech.ts';
-import { h, paragraphs } from '../dom.ts';
+import { h } from '../dom.ts';
 import { status } from '../feedback.ts';
 import { spokenDate } from '../format.ts';
 import { href, navigate } from '../router.ts';
+import { splitParagraphs } from '../reader/text.ts';
 import { deleteDocument, getDocument, updateDocument, type VoxDocument } from '../storage/documents.ts';
 import { section, viewHeader, type View } from './components.ts';
 import { notFoundView } from './not-found.ts';
+import { readerPanel, type ReaderPanel } from './reader-panel.ts';
 
 function shareFile(doc: VoxDocument): File | null {
   if (!doc.image) {
@@ -34,39 +35,32 @@ export async function documentView(id: string): Promise<View> {
   const header = viewHeader(doc.title, h('p', { class: 'view-intro' }, `Gescannt am ${spokenDate(doc.createdAt)}.`));
   const title = header.querySelector('h1') as HTMLHeadingElement;
 
-  // ---------- Text ----------
+  // ---------- Text und Vorlesen ----------
   const textBody = h('div', { class: 'doc-text' });
-  const renderText = (): void => {
-    textBody.replaceChildren(
-      ...(doc.text.trim()
-        ? paragraphs(doc.text)
-        : [
-            h(
-              'p',
-              { class: 'empty' },
-              'Dieses Dokument hat noch keinen Text. Du kannst ihn über „Text bearbeiten“ eingeben oder diktieren.',
-            ),
-          ]),
-    );
-  };
-  renderText();
+  const readerHolder = h('div', null);
+  let reader: ReaderPanel | null = null;
 
-  // ---------- Vorlesen ----------
-  const readButton = h('button', { type: 'button', class: 'button button-primary' });
-  const setReading = (reading: boolean): void => {
-    readButton.textContent = reading ? 'Vorlesen beenden' : 'Vorlesen';
-  };
-  readButton.addEventListener('click', () => {
-    if (isSpeaking()) {
-      stopSpeaking();
-      setReading(false);
-      status('Vorlesen beendet.');
+  const renderText = (): void => {
+    reader?.destroy();
+    reader = null;
+    const texts = splitParagraphs(doc.text);
+    if (texts.length === 0) {
+      textBody.replaceChildren(
+        h(
+          'p',
+          { class: 'empty' },
+          'Dieses Dokument hat noch keinen Text. Du kannst ihn über „Text bearbeiten“ eingeben oder diktieren.',
+        ),
+      );
+      readerHolder.replaceChildren();
       return;
     }
-    const content = doc.text.trim() || 'Dieses Dokument hat noch keinen Text.';
-    setReading(speak(`${doc.title}. ${content}`, { onEnd: () => setReading(false) }));
-  });
-  setReading(false);
+    const elements = texts.map((text) => h('p', null, text));
+    textBody.replaceChildren(...elements);
+    reader = readerPanel(texts, elements);
+    readerHolder.replaceChildren(reader.element);
+  };
+  renderText();
 
   // ---------- Formulare (Umbenennen, Text bearbeiten) ----------
   const formHolder = h('div', null);
@@ -197,7 +191,7 @@ export async function documentView(id: string): Promise<View> {
     { class: 'view' },
     h('a', { class: 'back-link', href: href({ name: 'library' }) }, 'Zurück zur Bibliothek'),
     header,
-    speechSupported ? h('div', { class: 'button-stack' }, readButton) : null,
+    readerHolder,
     section('text-heading', 'Text', textBody),
     section(
       'actions-heading',
@@ -223,7 +217,7 @@ export async function documentView(id: string): Promise<View> {
     title: doc.title,
     element,
     destroy: () => {
-      stopSpeaking();
+      reader?.destroy();
       if (imageUrl) {
         URL.revokeObjectURL(imageUrl);
       }

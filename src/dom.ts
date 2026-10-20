@@ -37,12 +37,3 @@ export function byId<T extends HTMLElement>(id: string): T {
   }
   return element as T;
 }
-
-/** Text mit Zeilenumbrüchen als Absätze darstellen. */
-export function paragraphs(text: string): HTMLParagraphElement[] {
-  return text
-    .split(/\n\s*\n|\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => h('p', null, line));
-}

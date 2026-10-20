@@ -125,6 +125,7 @@ h1:focus {
 
 .view {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: calc(var(--space) * 1.5);
 }
 
@@ -329,6 +330,86 @@ h1:focus {
 
 .doc-text > :last-child {
   margin-bottom: 0;
+}
+
+.doc-text p {
+  padding: 0.25em 0.5em;
+  margin: 0 -0.5em 0.75em;
+  border-radius: 0.5rem;
+}
+
+/* Aktuell vorgelesener Absatz – für Menschen mit Sehrest. */
+.doc-text p.is-reading {
+  background: var(--color-surface-raised);
+  box-shadow: inset 4px 0 0 var(--color-primary);
+}
+
+/* ---------- Vorlesen ---------- */
+.reader-status {
+  font-weight: 600;
+}
+
+.reader-controls {
+  container: reader / inline-size;
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: var(--space);
+}
+
+.reader-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.button-icon {
+  flex-direction: column;
+  gap: 0.25rem;
+  min-height: 4.5rem;
+  padding: 0.5em 0.25em;
+  font-size: 0.875em;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+}
+
+.button-icon svg {
+  width: 1.5rem;
+  height: 1.5rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.reader-rate {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.reader-rate-value {
+  margin: 0;
+  min-width: 6.5em;
+  text-align: center;
+  font-weight: 600;
+}
+
+/* Bei großer Textgröße (Dynamic Type) untereinander statt nebeneinander. */
+@container reader (max-width: 20em) {
+  .reader-row,
+  .reader-rate {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .button-icon {
+    flex-direction: row;
+    min-height: var(--touch-min);
+    font-size: 1em;
+  }
 }
 
 .doc-photo {
