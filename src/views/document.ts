@@ -1,0 +1,232 @@
+import { isSpeaking, speak, speechSupported, stopSpeaking } from '../audio/speech.ts';
+import { h, paragraphs } from '../dom.ts';
+import { status } from '../feedback.ts';
+import { spokenDate } from '../format.ts';
+import { href, navigate } from '../router.ts';
+import { deleteDocument, getDocument, updateDocument, type VoxDocument } from '../storage/documents.ts';
+import { section, viewHeader, type View } from './components.ts';
+import { notFoundView } from './not-found.ts';
+
+function shareFile(doc: VoxDocument): File | null {
+  if (!doc.image) {
+    return null;
+  }
+  const name = `${doc.title.replace(/[\\/:*?"<>|]+/g, '-')}.jpg`;
+  return new File([doc.image], name, { type: doc.image.type || 'image/jpeg' });
+}
+
+function canShare(doc: VoxDocument): boolean {
+  if (typeof navigator.share !== 'function') {
+    return false;
+  }
+  const file = shareFile(doc);
+  return !file || !navigator.canShare || navigator.canShare({ files: [file] });
+}
+
+export async function documentView(id: string): Promise<View> {
+  const found = await getDocument(id);
+  if (!found) {
+    return notFoundView('Dieses Dokument gibt es nicht mehr. Vielleicht wurde es gelöscht.');
+  }
+  let doc: VoxDocument = found;
+  const imageUrl = doc.image ? URL.createObjectURL(doc.image) : null;
+
+  const header = viewHeader(doc.title, h('p', { class: 'view-intro' }, `Gescannt am ${spokenDate(doc.createdAt)}.`));
+  const title = header.querySelector('h1') as HTMLHeadingElement;
+
+  // ---------- Text ----------
+  const textBody = h('div', { class: 'doc-text' });
+  const renderText = (): void => {
+    textBody.replaceChildren(
+      ...(doc.text.trim()
+        ? paragraphs(doc.text)
+        : [
+            h(
+              'p',
+              { class: 'empty' },
+              'Dieses Dokument hat noch keinen Text. Du kannst ihn über „Text bearbeiten“ eingeben oder diktieren.',
+            ),
+          ]),
+    );
+  };
+  renderText();
+
+  // ---------- Vorlesen ----------
+  const readButton = h('button', { type: 'button', class: 'button button-primary' });
+  const setReading = (reading: boolean): void => {
+    readButton.textContent = reading ? 'Vorlesen beenden' : 'Vorlesen';
+  };
+  readButton.addEventListener('click', () => {
+    if (isSpeaking()) {
+      stopSpeaking();
+      setReading(false);
+      status('Vorlesen beendet.');
+      return;
+    }
+    const content = doc.text.trim() || 'Dieses Dokument hat noch keinen Text.';
+    setReading(speak(`${doc.title}. ${content}`, { onEnd: () => setReading(false) }));
+  });
+  setReading(false);
+
+  // ---------- Formulare (Umbenennen, Text bearbeiten) ----------
+  const formHolder = h('div', null);
+  let returnFocus: HTMLElement | null = null;
+
+  const closeForm = (): void => {
+    formHolder.replaceChildren();
+    returnFocus?.focus();
+  };
+
+  const openForm = (
+    trigger: HTMLElement,
+    label: string,
+    field: HTMLInputElement | HTMLTextAreaElement,
+    onSave: (value: string) => Promise<void>,
+  ): void => {
+    returnFocus = trigger;
+    field.id = 'edit-field';
+    const form = h(
+      'form',
+      {
+        class: 'card edit-form',
+        onsubmit: async (event: Event) => {
+          event.preventDefault();
+          try {
+            await onSave(field.value);
+            closeForm();
+          } catch (error) {
+            console.error(error);
+            status('Speichern fehlgeschlagen. Bitte versuche es erneut.', 'error');
+          }
+        },
+      },
+      h('label', { for: 'edit-field' }, label),
+      field,
+      h(
+        'div',
+        { class: 'button-row' },
+        h('button', { type: 'submit', class: 'button button-primary' }, 'Speichern'),
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'button button-secondary',
+            onclick: () => {
+              closeForm();
+              status('Abgebrochen.');
+            },
+          },
+          'Abbrechen',
+        ),
+      ),
+    );
+    formHolder.replaceChildren(form);
+    field.focus();
+  };
+
+  const renameButton = h('button', { type: 'button', class: 'button button-secondary' }, 'Umbenennen');
+  renameButton.addEventListener('click', () => {
+    const input = h('input', { type: 'text', value: doc.title, required: true, maxlength: '120', enterkeyhint: 'done' });
+    openForm(renameButton, 'Neuer Name', input, async (value) => {
+      const newTitle = value.trim();
+      if (!newTitle || newTitle === doc.title) {
+        return;
+      }
+      doc = await updateDocument(doc.id, { title: newTitle });
+      title.textContent = doc.title;
+      document.title = `${doc.title} – VoxDoc`;
+      status(`Umbenannt in „${doc.title}“.`, 'success');
+    });
+  });
+
+  const editButton = h('button', { type: 'button', class: 'button button-secondary' }, 'Text bearbeiten');
+  editButton.addEventListener('click', () => {
+    const textarea = h('textarea', { rows: '10', autocapitalize: 'sentences' });
+    textarea.value = doc.text;
+    openForm(editButton, 'Text des Dokuments', textarea, async (value) => {
+      doc = await updateDocument(doc.id, { text: value.trim() });
+      renderText();
+      status('Text gespeichert.', 'success');
+    });
+  });
+
+  const shareButton = canShare(doc)
+    ? h(
+        'button',
+        {
+          type: 'button',
+          class: 'button button-secondary',
+          onclick: async () => {
+            const file = shareFile(doc);
+            try {
+              await navigator.share({
+                title: doc.title,
+                ...(doc.text ? { text: doc.text } : {}),
+                ...(file ? { files: [file] } : {}),
+              });
+            } catch (error) {
+              if ((error as DOMException).name !== 'AbortError') {
+                status('Teilen ist fehlgeschlagen.', 'error');
+              }
+            }
+          },
+        },
+        'Teilen',
+      )
+    : null;
+
+  const deleteButton = h(
+    'button',
+    {
+      type: 'button',
+      class: 'button button-danger',
+      onclick: async () => {
+        if (!window.confirm(`„${doc.title}“ wirklich löschen? Das kann nicht rückgängig gemacht werden.`)) {
+          return;
+        }
+        await deleteDocument(doc.id);
+        status('Dokument gelöscht.', 'success');
+        navigate({ name: 'library' });
+      },
+    },
+    'Dokument löschen',
+  );
+
+  const element = h(
+    'div',
+    { class: 'view' },
+    h('a', { class: 'back-link', href: href({ name: 'library' }) }, 'Zurück zur Bibliothek'),
+    header,
+    speechSupported ? h('div', { class: 'button-stack' }, readButton) : null,
+    section('text-heading', 'Text', textBody),
+    section(
+      'actions-heading',
+      'Bearbeiten',
+      h('div', { class: 'button-stack' }, editButton, renameButton, shareButton),
+      formHolder,
+    ),
+    imageUrl
+      ? section(
+          'photo-heading',
+          'Foto',
+          h(
+            'figure',
+            { class: 'doc-photo' },
+            h('img', { src: imageUrl, alt: `Foto des Dokuments „${doc.title}“`, decoding: 'async' }),
+          ),
+        )
+      : null,
+    h('div', { class: 'button-stack danger-zone' }, deleteButton),
+  );
+
+  return {
+    title: doc.title,
+    element,
+    destroy: () => {
+      stopSpeaking();
+      if (imageUrl) {
+        URL.revokeObjectURL(imageUrl);
+      }
+    },
+  };
+}

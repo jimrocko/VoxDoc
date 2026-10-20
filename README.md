@@ -4,8 +4,23 @@ Barrierefreie Dokumentenerkennung für blinde und sehbehinderte Menschen, gebaut
 Progressive Web App (PWA) für das iPhone. VoxDoc soll Dokumente mit der Kamera erfassen,
 den Text erkennen und vorlesen.
 
-> **Status:** Grundgerüst. Startseite, PWA-Einrichtung und Barrierefreiheits-Basis sind
-> fertig. Kamera, Texterkennung und Sprachausgabe sind noch nicht umgesetzt.
+> **Status:** Grundoberfläche fertig – Scannen per Kamera, Bibliothek, Suche, Vorlesen,
+> Einstellungen und Hilfe funktionieren. Die automatische Texterkennung (OCR) folgt; bis
+> dahin kann der Text eines Dokuments eingegeben oder diktiert werden.
+
+## Funktionen
+
+- **Dokument scannen** – öffnet die Rückkamera des iPhones (oder die Mediathek). Fotos werden
+  auf höchstens 2400 Pixel verkleinert und lokal gespeichert.
+- **Bibliothek** – alle Dokumente, sortierbar nach Datum oder Name.
+- **Dokument** – Vorlesen, Text bearbeiten/diktieren, Umbenennen, Teilen (iOS-Teilen-Menü), Löschen.
+- **Suche** – durchsucht Titel und Text, zeigt einen Textausschnitt und sagt die Trefferzahl an.
+- **Einstellungen** – Stimme, Sprechtempo, Signaltöne, Statusmeldungen vorlesen,
+  Farbschema (dunkel, hell, wie System), Speicherbelegung, alle Dokumente löschen.
+- **Hilfe** – Bedienung, Scan-Tipps, VoiceOver-Gesten, Installation, Datenschutz.
+- **Akustische Statusmeldungen** – Ansagen über VoiceOver, kurze Signaltöne (aufsteigend =
+  Erfolg, tief = Fehler) und optional eigene Sprachausgabe für die Nutzung ohne VoiceOver.
+- **Offline** – nach dem ersten Laden vollständig ohne Internet nutzbar; alle Daten bleiben auf dem Gerät.
 
 ## Technik
 
@@ -59,19 +74,28 @@ Anschließend in Safari über „Teilen“ → „Zum Home-Bildschirm“ install
 | `npm run preview`       | Produktions-Build lokal ausliefern                   |
 | `npm run preview:https` | Produktions-Build über HTTPS ausliefern              |
 | `npm run typecheck`     | Nur TypeScript-Typprüfung                            |
+| `npm test`              | Unit-Tests mit Vitest                                |
 
 ## Projektstruktur
 
 ```
-├── index.html            Startseite, iOS-Meta-Tags, Live-Region
-├── public/icons/         App-Icons (SVG, Apple Touch Icon, PWA-Icons)
+├── index.html              App-Hülle: Tab-Leiste, Live-Region, Kamera-Eingaben
+├── public/icons/           App-Icons (SVG, Apple Touch Icon, PWA-Icons)
 ├── src/
-│   ├── main.ts           Einstiegspunkt, Service-Worker-Registrierung
-│   ├── platform.ts       Erkennung von iOS und Standalone-Modus
-│   ├── a11y/announcer.ts Ansagen für VoiceOver über eine Live-Region
-│   ├── styles.css        Minimalistisches, responsives Design
-│   └── env.d.ts          Globale Typdeklarationen
-├── vite.config.ts        Vite- und PWA-Konfiguration (Manifest)
+│   ├── main.ts             Einstiegspunkt, Service Worker, Audio-Freigabe
+│   ├── app.ts              Routing, Fokus-Steuerung, Farbschema, Online-Status
+│   ├── router.ts           Hash-Router (#/, #/bibliothek, #/suche, …)
+│   ├── views/              Ansichten: Start, Bibliothek, Dokument, Suche, Einstellungen, Hilfe
+│   ├── scan/               Kamera-Aufnahme und Bildverkleinerung
+│   ├── storage/            Dokumente (IndexedDB) und Einstellungen (localStorage)
+│   ├── audio/              Sprachausgabe (Web Speech API) und Signaltöne (Web Audio)
+│   ├── a11y/announcer.ts   Ansagen für VoiceOver über eine Live-Region
+│   ├── feedback.ts         Statusmeldungen: Ansage + Ton + optionale Sprachausgabe
+│   ├── search.ts           Volltextsuche
+│   ├── dom.ts, format.ts   DOM-Helfer, deutsche Datums- und Zahlenformate
+│   └── styles.css          Dunkles, minimalistisches Design
+├── tests/                  Unit-Tests (Vitest)
+├── vite.config.ts          Vite- und PWA-Konfiguration (Manifest)
 └── tsconfig.json
 ```
 
@@ -79,6 +103,11 @@ Anschließend in Safari über „Teilen“ → „Zum Home-Bildschirm“ install
 
 Barrierefreiheit ist die Grundlage von VoxDoc, nicht ein Zusatz. Bereits umgesetzt:
 
+- **Navigation:** Tab-Leiste als `<nav>` mit `aria-current="page"`. Beim Seitenwechsel erhält
+  die Überschrift der neuen Ansicht den Fokus, damit VoiceOver dort weiterliest.
+- **Formulare:** Jedes Feld hat ein sichtbares `<label>`; Schalter nutzen ab iOS 17.4 den
+  nativen iOS-Switch (`<input type="checkbox" switch>`), das Sprechtempo hat einen
+  sprechenden `aria-valuetext`.
 - **Semantisches HTML:** Landmarks (`header`, `main`, `footer`), Überschriften-Hierarchie,
   echte `<button>`-Elemente – VoiceOver kann per Rotor nach Überschriften und Landmarks navigieren.
 - **Live-Region** (`role="status"`) für Ansagen. Sie ist von Anfang an im DOM, weil VoiceOver
@@ -100,14 +129,16 @@ Barrierefreiheit ist die Grundlage von VoxDoc, nicht ein Zusatz. Bereits umgeset
    (oder per Kurzbefehl: dreimal die Seitentaste drücken).
 2. Mit Wischen nach rechts/links durch die Elemente navigieren, Doppeltippen aktiviert.
 3. Rotor (Zwei-Finger-Drehgeste) auf „Überschriften“ stellen und prüfen, ob die Struktur stimmt.
-4. „Dokument scannen“ aktivieren – VoiceOver sollte die Statusmeldung ansagen.
+4. „Dokument scannen“ aktivieren, ein Foto aufnehmen – nach dem Speichern ertönt ein
+   aufsteigender Ton, VoiceOver sagt „Dokument gespeichert“ an und liest die Überschrift des Dokuments.
+5. Über die Tab-Leiste zwischen den Bereichen wechseln und prüfen, dass jeweils die neue
+   Überschrift angesagt wird.
 
 ## Nächste Schritte
 
-- Kamerazugriff (`getUserMedia`) mit gesprochener Ausrichtungshilfe
-- Texterkennung (OCR) im Browser
-- Vorlesen über die Web Speech API (`speechSynthesis`)
-- Automatisierte Barrierefreiheitstests (z. B. axe-core) und Unit-Tests
+- Texterkennung (OCR) im Browser, Ergebnis landet im Textfeld des Dokuments
+- Live-Kamera (`getUserMedia`) mit gesprochener Ausrichtungshilfe
+- Automatisierte Ende-zu-Ende- und Barrierefreiheitstests (z. B. Playwright + axe-core) im Repository
 
 ## Lizenz
 
