@@ -1,36 +1,56 @@
+import { winAnsiToUnicode, type FontMetrics } from './ttf.ts';
+
 /**
- * Minimaler PDF-Erzeuger ohne Fremdbibliothek: Fotos als JPEG-Seiten (A4) und
- * der Lesetext als echte Textseiten (Helvetica, WinAnsi – mit Umlauten und ß),
- * damit der Text kopiert, durchsucht und von VoiceOver gelesen werden kann.
+ * Eigener PDF-Erzeuger (keine Fremdbibliothek) für getaggte PDFs:
+ * Strukturbaum (Document, H1, H2, P, Figure mit Alternativtext), markierter
+ * Inhalt mit MCIDs, Seitenzahlen als Artefakte, eingebettete TrueType-Schrift
+ * mit ToUnicode-Tabelle, XMP-Metadaten, Sprache und Lesezeichen.
+ *
+ * Bewusst ohne PDF/UA-Kennung (pdfuaid): Ob ein Dokument PDF/UA erfüllt,
+ * verlangt auch Prüfungen durch Menschen (z. B. Qualität der Alternativtexte).
  */
-export interface PdfImage {
-  /** JPEG-Daten (Baseline oder Progressive). */
-  jpeg: Uint8Array;
+export type PdfBlock =
+  | { kind: 'heading'; level: 1 | 2; text: string }
+  | { kind: 'paragraph'; text: string; small?: boolean }
+  | { kind: 'figure'; jpeg: Uint8Array; alt: string };
+
+export interface PdfFont {
+  /** TrueType-Datei (wird vollständig eingebettet). */
+  program: Uint8Array;
+  metrics: FontMetrics;
 }
 
 export interface PdfInput {
   title: string;
-  images: PdfImage[];
-  /** Absätze des Lesetexts; leer = keine Textseiten. */
-  paragraphs: string[];
-  /** Hinweis über dem Text, z. B. dass er per Texterkennung entstand. */
-  textNote?: string;
+  /** BCP-47, z. B. „de-DE“. */
+  lang: string;
+  blocks: PdfBlock[];
+  font: PdfFont;
+  /** zlib-Kompression (FlateDecode); im Browser über CompressionStream. */
+  deflate: (data: Uint8Array) => Promise<Uint8Array>;
   createdAt?: Date;
 }
 
 export interface PdfResult {
   bytes: Uint8Array;
   pageCount: number;
-  /** Zeichen, die Helvetica/WinAnsi nicht darstellen kann und durch „?“ ersetzt wurden. */
+  /** Zeichen, die Schrift oder Kodierung nicht darstellen können; durch „?“ ersetzt. */
   replacedCharacters: number;
+  structure: { headings: number; paragraphs: number; figures: number };
 }
 
 const PAGE_WIDTH = 595.28;
 const PAGE_HEIGHT = 841.89;
 const MARGIN = 56.69; // 2 cm
-const FONT_SIZE = 11;
-const LEADING = 15.5;
-const TITLE_SIZE = 16;
+const FOOTER_Y = 28;
+const CONTENT_BOTTOM = MARGIN;
+
+const STYLES = {
+  h1: { size: 18, leading: 24, before: 0 },
+  h2: { size: 14, leading: 19, before: 16 },
+  p: { size: 11, leading: 15.5, before: 7 },
+  small: { size: 9, leading: 12.5, before: 5 },
+} as const;
 
 // ---------- JPEG ----------
 
@@ -57,8 +77,7 @@ export function readJpegInfo(bytes: Uint8Array): JpegInfo {
       continue;
     }
     const length = (bytes[i + 2]! << 8) | bytes[i + 3]!;
-    const isSof = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
-    if (isSof) {
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
       return {
         height: (bytes[i + 5]! << 8) | bytes[i + 6]!,
         width: (bytes[i + 7]! << 8) | bytes[i + 8]!,
@@ -70,80 +89,57 @@ export function readJpegInfo(bytes: Uint8Array): JpegInfo {
   throw new Error('JPEG ohne Bildgröße');
 }
 
-// ---------- Text (WinAnsi, Helvetica) ----------
+// ---------- Text ----------
 
-/** Unicode → WinAnsi für die Zeichen 0x80–0x9F; 0xA0–0xFF entsprechen Latin-1. */
-const WIN_ANSI_EXTRA: Record<number, number> = {
-  0x20ac: 0x80, 0x201a: 0x82, 0x0192: 0x83, 0x201e: 0x84, 0x2026: 0x85, 0x2020: 0x86, 0x2021: 0x87,
-  0x02c6: 0x88, 0x2030: 0x89, 0x0160: 0x8a, 0x2039: 0x8b, 0x0152: 0x8c, 0x017d: 0x8e, 0x2018: 0x91,
-  0x2019: 0x92, 0x201c: 0x93, 0x201d: 0x94, 0x2022: 0x95, 0x2013: 0x96, 0x2014: 0x97, 0x02dc: 0x98,
-  0x2122: 0x99, 0x0161: 0x9a, 0x203a: 0x9b, 0x0153: 0x9c, 0x017e: 0x9e, 0x0178: 0x9f,
-};
+const UNICODE_TO_WIN_ANSI = new Map<number, number>();
+for (let code = 0x20; code <= 0xff; code++) {
+  const unicode = winAnsiToUnicode(code);
+  if (unicode !== null) {
+    UNICODE_TO_WIN_ANSI.set(unicode, code);
+  }
+}
 
-export function encodeWinAnsi(text: string): { bytes: number[]; replaced: number } {
+/** Kodiert Text für die eingebettete Schrift; nicht darstellbare Zeichen werden „?“. */
+export function encodeText(text: string, metrics: FontMetrics): { bytes: number[]; replaced: number } {
   const bytes: number[] = [];
   let replaced = 0;
   for (const char of text.normalize('NFC')) {
-    const code = char.codePointAt(0)!;
-    if ((code >= 0x20 && code <= 0x7e) || (code >= 0xa0 && code <= 0xff)) {
+    const unicode = char.codePointAt(0)!;
+    const code = unicode === 0x09 ? 0x20 : UNICODE_TO_WIN_ANSI.get(unicode);
+    if (code !== undefined && metrics.widths[code - 32] != null) {
       bytes.push(code);
-    } else if (WIN_ANSI_EXTRA[code] !== undefined) {
-      bytes.push(WIN_ANSI_EXTRA[code]!);
-    } else if (code === 0x09) {
-      bytes.push(0x20);
     } else {
-      bytes.push(0x3f); // „?“
+      bytes.push(0x3f);
       replaced++;
     }
   }
   return { bytes, replaced };
 }
 
-/** Breiten der Helvetica (1/1000 em) für ASCII 32–126 laut Adobe-AFM. */
-const HELVETICA_ASCII = [
-  278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556,
-  556, 556, 556, 556, 278, 278, 584, 584, 584, 556, 1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667,
-  556, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556, 333, 556,
-  556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556, 556, 556, 333, 500, 278, 556, 500, 722,
-  500, 500, 500, 334, 260, 334, 584,
-];
-const HELVETICA_OTHER: Record<number, number> = {
-  0xc4: 667, 0xd6: 778, 0xdc: 722, 0xe4: 556, 0xf6: 556, 0xfc: 556, 0xdf: 611, 0x80: 556, 0x84: 333, 0x93: 333,
-  0x94: 333, 0x82: 222, 0x91: 222, 0x92: 222, 0x96: 556, 0x97: 1000, 0x85: 1000, 0xb7: 278, 0xb0: 400, 0xa7: 556,
-  0x95: 350, 0xe9: 556, 0xe8: 556, 0xe0: 556, 0xe1: 556, 0xc9: 667, 0xa0: 278,
-};
-/** Fettschrift ist etwas breiter; für den Umbruch genügt ein Zuschlag. */
-const BOLD_FACTOR = 1.08;
-
-function widthOf(bytes: readonly number[], size: number, bold = false): number {
-  let units = 0;
-  for (const byte of bytes) {
-    units += byte >= 32 && byte <= 126 ? HELVETICA_ASCII[byte - 32]! : (HELVETICA_OTHER[byte] ?? 556);
-  }
-  return (units / 1000) * size * (bold ? BOLD_FACTOR : 1);
+function widthOf(bytes: readonly number[], size: number, metrics: FontMetrics): number {
+  return (bytes.reduce((sum, code) => sum + (metrics.widths[code - 32] ?? 0), 0) / 1000) * size;
 }
 
-/** Bricht einen Absatz in Zeilen um; überlange Wörter werden hart getrennt. */
-export function wrapText(text: string, maxWidth: number, size = FONT_SIZE, bold = false): number[][] {
+/** Bricht Text in Zeilen der Breite `maxWidth` um; überlange Wörter werden hart getrennt. */
+export function wrapText(text: string, maxWidth: number, size: number, metrics: FontMetrics): number[][] {
   const lines: number[][] = [];
   let line: number[] = [];
-  const space = encodeWinAnsi(' ').bytes;
   for (const word of text.split(/\s+/).filter(Boolean)) {
-    let bytes = encodeWinAnsi(word).bytes;
-    while (widthOf(bytes, size, bold) > maxWidth) {
+    let bytes = encodeText(word, metrics).bytes;
+    while (widthOf(bytes, size, metrics) > maxWidth) {
       if (line.length > 0) {
         lines.push(line);
         line = [];
       }
       let cut = bytes.length - 1;
-      while (cut > 1 && widthOf(bytes.slice(0, cut), size, bold) > maxWidth) {
+      while (cut > 1 && widthOf(bytes.slice(0, cut), size, metrics) > maxWidth) {
         cut--;
       }
       lines.push(bytes.slice(0, cut));
       bytes = bytes.slice(cut);
     }
-    const candidate = line.length > 0 ? [...line, ...space, ...bytes] : bytes;
-    if (widthOf(candidate, size, bold) > maxWidth && line.length > 0) {
+    const candidate = line.length > 0 ? [...line, 0x20, ...bytes] : bytes;
+    if (line.length > 0 && widthOf(candidate, size, metrics) > maxWidth) {
       lines.push(line);
       line = bytes;
     } else {
@@ -156,9 +152,10 @@ export function wrapText(text: string, maxWidth: number, size = FONT_SIZE, bold 
   return lines;
 }
 
-const hex = (bytes: readonly number[]): string => `<${bytes.map((b) => b.toString(16).padStart(2, '0')).join('')}>`;
+const hex = (bytes: Iterable<number>): string =>
+  `<${[...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')}>`;
 
-/** Text für Metadaten (Titel) als UTF-16BE mit BOM – dort ist jedes Zeichen erlaubt. */
+/** Text für Metadaten und Alternativtexte als UTF-16BE mit BOM. */
 function utf16Hex(text: string): string {
   const bytes = [0xfe, 0xff];
   for (let i = 0; i < text.length; i++) {
@@ -168,12 +165,130 @@ function utf16Hex(text: string): string {
   return hex(bytes);
 }
 
+const xmlEscape = (text: string): string =>
+  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
 function pdfDate(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `D:${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}Z`;
 }
 
-// ---------- Aufbau ----------
+// ---------- Layout ----------
+
+type StructType = 'H1' | 'H2' | 'P' | 'Figure';
+
+interface StructElement {
+  type: StructType;
+  kids: { page: number; mcid: number }[];
+  alt?: string;
+  bbox?: [number, number, number, number];
+}
+
+interface ImageRef {
+  name: string;
+  jpeg: Uint8Array;
+  info: JpegInfo;
+}
+
+interface Page {
+  ops: string[];
+  /** Struktur-Element je MCID (für den ParentTree). */
+  mcids: number[];
+  images: ImageRef[];
+}
+
+interface Bookmark {
+  title: string;
+  page: number;
+  y: number;
+}
+
+function layout(input: PdfInput) {
+  const { metrics } = input.font;
+  const pages: Page[] = [];
+  const elements: StructElement[] = [];
+  const bookmarks: Bookmark[] = [];
+  let replaced = 0;
+  let imageCount = 0;
+  let page: Page;
+  let y = 0;
+  const maxWidth = PAGE_WIDTH - 2 * MARGIN;
+
+  const newPage = (): void => {
+    page = { ops: [], mcids: [], images: [] };
+    pages.push(page);
+    y = PAGE_HEIGHT - MARGIN;
+  };
+  newPage();
+
+  const mark = (element: number): number => {
+    const mcid = page.mcids.length;
+    page.mcids.push(element);
+    elements[element]!.kids.push({ page: pages.length - 1, mcid });
+    return mcid;
+  };
+
+  const addText = (type: StructType, text: string, style: (typeof STYLES)[keyof typeof STYLES], bookmark: boolean): void => {
+    replaced += encodeText(text, metrics).replaced;
+    const lines = wrapText(text, maxWidth, style.size, metrics);
+    if (lines.length === 0) {
+      return;
+    }
+    const element = elements.push({ type, kids: [] }) - 1;
+    const atTop = y === PAGE_HEIGHT - MARGIN;
+    let before = atTop ? 0 : style.before;
+    lines.forEach((bytes, index) => {
+      // Überschrift nicht allein am Seitenende stehen lassen.
+      const needed = before + style.leading * (index === 0 && type.startsWith('H') ? 3 : 1);
+      if (y - needed < CONTENT_BOTTOM) {
+        newPage();
+        before = 0;
+      }
+      y -= before + style.leading;
+      before = 0;
+      if (index === 0 && bookmark) {
+        bookmarks.push({ title: text, page: pages.length - 1, y: y + style.leading });
+      }
+      const mcid = mark(element);
+      page.ops.push(
+        `/${type} <</MCID ${mcid}>> BDC BT /F1 ${style.size} Tf 1 0 0 1 ${MARGIN.toFixed(2)} ${(y + style.size * 0.25).toFixed(2)} Tm ${hex(bytes)} Tj ET EMC`,
+      );
+    });
+  };
+
+  const addFigure = (block: Extract<PdfBlock, { kind: 'figure' }>): void => {
+    const info = readJpegInfo(block.jpeg);
+    const available = y - CONTENT_BOTTOM - 7;
+    // Zu wenig Platz: Foto auf einer neuen Seite möglichst groß zeigen.
+    if (available < 260) {
+      newPage();
+    }
+    const room = Math.min(y - CONTENT_BOTTOM - 7, PAGE_HEIGHT - 2 * MARGIN);
+    const scale = Math.min(maxWidth / info.width, room / info.height);
+    const w = info.width * scale;
+    const h = info.height * scale;
+    const x = MARGIN + (maxWidth - w) / 2;
+    y -= 7 + h;
+    const name = `Im${++imageCount}`;
+    page.images.push({ name, jpeg: block.jpeg, info });
+    const element = elements.push({ type: 'Figure', kids: [], alt: block.alt, bbox: [x, y, x + w, y + h] }) - 1;
+    const mcid = mark(element);
+    page.ops.push(`/Figure <</MCID ${mcid}>> BDC q ${w.toFixed(2)} 0 0 ${h.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)} cm /${name} Do Q EMC`);
+  };
+
+  for (const block of input.blocks) {
+    if (block.kind === 'heading') {
+      addText(block.level === 1 ? 'H1' : 'H2', block.text, block.level === 1 ? STYLES.h1 : STYLES.h2, true);
+    } else if (block.kind === 'paragraph') {
+      addText('P', block.text, block.small ? STYLES.small : STYLES.p, false);
+    } else {
+      addFigure(block);
+    }
+  }
+  return { pages, elements, bookmarks, replaced };
+}
+
+// ---------- Ausgabe ----------
 
 class PdfWriter {
   private chunks: Uint8Array[] = [];
@@ -213,117 +328,176 @@ class PdfWriter {
   }
 }
 
-interface TextLine {
-  bytes: number[];
-  size: number;
-  bold: boolean;
-  /** Abstand vor der Zeile. */
-  gap: number;
-}
-
-/** Verteilt Textzeilen auf Seiten. */
-function layoutText(input: PdfInput): { pages: TextLine[][]; replaced: number } {
-  const maxWidth = PAGE_WIDTH - 2 * MARGIN;
-  const lines: TextLine[] = [];
-  let replaced = 0;
-  const add = (text: string, size: number, bold: boolean, gapBefore: number) => {
-    replaced += encodeWinAnsi(text).replaced;
-    wrapText(text, maxWidth, size, bold).forEach((bytes, index) =>
-      lines.push({ bytes, size, bold, gap: index === 0 ? gapBefore : 0 }),
-    );
-  };
-  add(input.title, TITLE_SIZE, true, 0);
-  if (input.textNote) {
-    add(input.textNote, 9, false, 6);
-  }
-  input.paragraphs.forEach((paragraph, index) => add(paragraph, FONT_SIZE, false, index === 0 ? 14 : 7));
-
-  const pages: TextLine[][] = [];
-  let page: TextLine[] = [];
-  let y = PAGE_HEIGHT - MARGIN;
-  for (const line of lines) {
-    const height = line.gap + (line.size === FONT_SIZE ? LEADING : line.size * 1.35);
-    if (y - height < MARGIN && page.length > 0) {
-      pages.push(page);
-      page = [];
-      y = PAGE_HEIGHT - MARGIN;
-      line.gap = 0;
+function toUnicodeCMap(metrics: FontMetrics): string {
+  const entries: string[] = [];
+  for (let code = 32; code <= 255; code++) {
+    const unicode = winAnsiToUnicode(code);
+    if (unicode !== null && metrics.widths[code - 32] != null) {
+      entries.push(`<${code.toString(16).padStart(2, '0')}> <${unicode.toString(16).padStart(4, '0')}>`);
     }
-    page.push(line);
-    y -= line.gap + (line.size === FONT_SIZE ? LEADING : line.size * 1.35);
   }
-  if (page.length > 0) {
-    pages.push(page);
+  const blocks: string[] = [];
+  for (let i = 0; i < entries.length; i += 100) {
+    const part = entries.slice(i, i + 100);
+    blocks.push(`${part.length} beginbfchar\n${part.join('\n')}\nendbfchar`);
   }
-  return { pages, replaced };
+  return [
+    '/CIDInit /ProcSet findresource begin',
+    '12 dict begin',
+    'begincmap',
+    '/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def',
+    '/CMapName /Adobe-Identity-UCS def',
+    '/CMapType 2 def',
+    '1 begincodespacerange',
+    '<00> <FF>',
+    'endcodespacerange',
+    ...blocks,
+    'endcmap',
+    'CMapName currentdict /CMap defineresource pop',
+    'end',
+    'end',
+  ].join('\n');
 }
 
-function textContent(lines: TextLine[]): string {
-  let y = PAGE_HEIGHT - MARGIN;
-  const ops: string[] = ['BT'];
-  for (const line of lines) {
-    const height = line.size === FONT_SIZE ? LEADING : line.size * 1.35;
-    y -= line.gap + height;
-    ops.push(`/${line.bold ? 'F2' : 'F1'} ${line.size} Tf`, `1 0 0 1 ${MARGIN.toFixed(2)} ${y.toFixed(2)} Tm`, `${hex(line.bytes)} Tj`);
-  }
-  ops.push('ET');
-  return ops.join('\n');
+function xmp(title: string, lang: string, date: Date): string {
+  return `<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:pdf="http://ns.adobe.com/pdf/1.3/">
+<dc:format>application/pdf</dc:format>
+<dc:title><rdf:Alt><rdf:li xml:lang="x-default">${xmlEscape(title)}</rdf:li></rdf:Alt></dc:title>
+<dc:language><rdf:Bag><rdf:li>${xmlEscape(lang)}</rdf:li></rdf:Bag></dc:language>
+<xmp:CreateDate>${date.toISOString().replace(/\.\d{3}Z$/, 'Z')}</xmp:CreateDate>
+<xmp:CreatorTool>VoxDoc</xmp:CreatorTool>
+<pdf:Producer>VoxDoc</pdf:Producer>
+</rdf:Description>
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`;
 }
 
-export function buildPdf(input: PdfInput): PdfResult {
+export async function buildPdf(input: PdfInput): Promise<PdfResult> {
+  if (input.blocks.length === 0) {
+    throw new Error('Kein Inhalt für das PDF');
+  }
+  const { metrics, program } = input.font;
+  const date = input.createdAt ?? new Date();
+  const { pages, elements, bookmarks, replaced } = layout(input);
+  const encoder = new TextEncoder();
+
+  // Feste Objekte
+  const CATALOG = 1, PAGES = 2, INFO = 3, FONT = 4, DESCRIPTOR = 5, FONT_FILE = 6, TO_UNICODE = 7;
+  const STRUCT_ROOT = 8, DOCUMENT = 9, PARENT_TREE = 10, METADATA = 11, OUTLINES = 12;
+  let next = 13;
+  const elementIds = elements.map(() => next++);
+  const pageIds = pages.map(() => next++);
+  const contentIds = pages.map(() => next++);
+  const imageIds = pages.map((page) => page.images.map(() => next++));
+  const bookmarkIds = bookmarks.map(() => next++);
+
   const writer = new PdfWriter();
-  if (input.images.length === 0 && input.paragraphs.length === 0) {
-    throw new Error('Weder Fotos noch Text für das PDF');
-  }
-  writer.write('%PDF-1.4\n');
+  writer.write('%PDF-1.7\n');
   // Ein Kommentar mit Bytes über 127 kennzeichnet die Datei als binär.
   writer.write(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));
 
-  const text = input.paragraphs.length > 0 ? layoutText(input) : { pages: [], replaced: 0 };
-  let next = 6; // 1 Katalog, 2 Seitenbaum, 3 Info, 4 Schrift, 5 Fettschrift
-  const pageIds: number[] = [];
-  const objects: (() => void)[] = [];
+  writer.object(
+    CATALOG,
+    `<< /Type /Catalog /Pages ${PAGES} 0 R /Lang (${input.lang.replace(/[^A-Za-z0-9-]/g, "")}) /MarkInfo << /Marked true >> /StructTreeRoot ${STRUCT_ROOT} 0 R /Metadata ${METADATA} 0 R /Outlines ${OUTLINES} 0 R /PageMode /UseOutlines /ViewerPreferences << /DisplayDocTitle true >> >>`,
+  );
+  writer.object(PAGES, `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pages.length} >>`);
+  writer.object(INFO, `<< /Title ${utf16Hex(input.title)} /Producer (VoxDoc) /Creator (VoxDoc) /CreationDate (${pdfDate(date)}) >>`);
 
-  for (const image of input.images) {
-    const info = readJpegInfo(image.jpeg);
-    const [imageId, contentId, pageId] = [next++, next++, next++];
-    pageIds.push(pageId);
-    const scale = Math.min((PAGE_WIDTH - 2 * MARGIN) / info.width, (PAGE_HEIGHT - 2 * MARGIN) / info.height);
-    const w = info.width * scale;
-    const h = info.height * scale;
-    const x = (PAGE_WIDTH - w) / 2;
-    const y = (PAGE_HEIGHT - h) / 2;
-    const colorSpace = info.components === 1 ? '/DeviceGray' : info.components === 4 ? '/DeviceCMYK /Decode [1 0 1 0 1 0 1 0]' : '/DeviceRGB';
-    const content = new TextEncoder().encode(`q\n${w.toFixed(2)} 0 0 ${h.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)} cm\n/Im1 Do\nQ`);
-    objects.push(() => {
-      writer.object(imageId, `<< /Type /XObject /Subtype /Image /Width ${info.width} /Height ${info.height} /ColorSpace ${colorSpace} /BitsPerComponent 8 /Filter /DCTDecode /Length ${image.jpeg.length} >>`, image.jpeg);
-      writer.object(contentId, `<< /Length ${content.length} >>`, content);
-      writer.object(pageId, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] /Resources << /XObject << /Im1 ${imageId} 0 R >> >> /Contents ${contentId} 0 R >>`);
+  const widths = metrics.widths.map((w) => w ?? 0).join(' ');
+  writer.object(
+    FONT,
+    `<< /Type /Font /Subtype /TrueType /BaseFont /${metrics.postScriptName} /FirstChar 32 /LastChar 255 /Widths [${widths}] /Encoding /WinAnsiEncoding /FontDescriptor ${DESCRIPTOR} 0 R /ToUnicode ${TO_UNICODE} 0 R >>`,
+  );
+  writer.object(
+    DESCRIPTOR,
+    `<< /Type /FontDescriptor /FontName /${metrics.postScriptName} /Flags 32 /FontBBox [${metrics.bbox.join(' ')}] /ItalicAngle ${metrics.italicAngle} /Ascent ${metrics.ascent} /Descent ${metrics.descent} /CapHeight ${metrics.capHeight} /StemV 80 /FontFile2 ${FONT_FILE} 0 R >>`,
+  );
+  const fontStream = await input.deflate(program);
+  writer.object(FONT_FILE, `<< /Length ${fontStream.length} /Length1 ${program.length} /Filter /FlateDecode >>`, fontStream);
+  const cmap = await input.deflate(encoder.encode(toUnicodeCMap(metrics)));
+  writer.object(TO_UNICODE, `<< /Length ${cmap.length} /Filter /FlateDecode >>`, cmap);
+
+  // Strukturbaum
+  writer.object(STRUCT_ROOT, `<< /Type /StructTreeRoot /K ${DOCUMENT} 0 R /ParentTree ${PARENT_TREE} 0 R /ParentTreeNextKey ${pages.length} >>`);
+  writer.object(DOCUMENT, `<< /Type /StructElem /S /Document /P ${STRUCT_ROOT} 0 R /K [${elementIds.map((id) => `${id} 0 R`).join(' ')}] >>`);
+  elements.forEach((element, index) => {
+    const kids = element.kids.map((kid) => `<< /Type /MCR /Pg ${pageIds[kid.page]} 0 R /MCID ${kid.mcid} >>`).join(' ');
+    const extra =
+      element.type === 'Figure'
+        ? ` /Alt ${utf16Hex(element.alt ?? '')} /A << /O /Layout /Placement /Block /BBox [${element.bbox!.map((v) => v.toFixed(2)).join(' ')}] >>`
+        : '';
+    writer.object(
+      elementIds[index]!,
+      `<< /Type /StructElem /S /${element.type} /P ${DOCUMENT} 0 R /Pg ${pageIds[element.kids[0]!.page]} 0 R /K [${kids}]${extra} >>`,
+    );
+  });
+  const nums = pages.map((page, index) => `${index} [${page.mcids.map((element) => `${elementIds[element]} 0 R`).join(' ')}]`).join(' ');
+  writer.object(PARENT_TREE, `<< /Nums [${nums}] >>`);
+
+  const metadata = encoder.encode(xmp(input.title, input.lang, date));
+  writer.object(METADATA, `<< /Type /Metadata /Subtype /XML /Length ${metadata.length} >>`, metadata);
+
+  // Lesezeichen (flach, in Lesereihenfolge)
+  if (bookmarkIds.length > 0) {
+    writer.object(OUTLINES, `<< /Type /Outlines /First ${bookmarkIds[0]} 0 R /Last ${bookmarkIds.at(-1)} 0 R /Count ${bookmarkIds.length} >>`);
+  } else {
+    writer.object(OUTLINES, '<< /Type /Outlines /Count 0 >>');
+  }
+  bookmarks.forEach((bookmark, index) => {
+    const links = [
+      index > 0 ? `/Prev ${bookmarkIds[index - 1]} 0 R` : '',
+      index < bookmarks.length - 1 ? `/Next ${bookmarkIds[index + 1]} 0 R` : '',
+    ].join(' ');
+    writer.object(
+      bookmarkIds[index]!,
+      `<< /Title ${utf16Hex(bookmark.title)} /Parent ${OUTLINES} 0 R ${links} /Dest [${pageIds[bookmark.page]} 0 R /XYZ 0 ${bookmark.y.toFixed(2)} null] >>`,
+    );
+  });
+
+  // Seiten
+  for (const [index, page] of pages.entries()) {
+    const footer = encodeText(`Seite ${index + 1} von ${pages.length}`, metrics).bytes;
+    const footerX = (PAGE_WIDTH - widthOf(footer, 9, metrics)) / 2;
+    const ops = [
+      ...page.ops,
+      // Seitenzahl ist Artefakt: Sie gehört nicht zum Inhalt und wird von Screenreadern übersprungen.
+      `/Artifact <</Type /Pagination /Subtype /Footer>> BDC BT /F1 9 Tf 1 0 0 1 ${footerX.toFixed(2)} ${FOOTER_Y} Tm ${hex(footer)} Tj ET EMC`,
+    ];
+    const content = await input.deflate(encoder.encode(ops.join('\n')));
+    writer.object(contentIds[index]!, `<< /Length ${content.length} /Filter /FlateDecode >>`, content);
+    const xobjects = page.images.map((image, i) => `/${image.name} ${imageIds[index]![i]} 0 R`).join(' ');
+    writer.object(
+      pageIds[index]!,
+      `<< /Type /Page /Parent ${PAGES} 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] /Resources << /Font << /F1 ${FONT} 0 R >>${xobjects ? ` /XObject << ${xobjects} >>` : ''} >> /Contents ${contentIds[index]} 0 R /StructParents ${index} /Tabs /S >>`,
+    );
+    page.images.forEach((image, i) => {
+      const { info } = image;
+      const colorSpace = info.components === 1 ? '/DeviceGray' : info.components === 4 ? '/DeviceCMYK /Decode [1 0 1 0 1 0 1 0]' : '/DeviceRGB';
+      writer.object(
+        imageIds[index]![i]!,
+        `<< /Type /XObject /Subtype /Image /Width ${info.width} /Height ${info.height} /ColorSpace ${colorSpace} /BitsPerComponent 8 /Filter /DCTDecode /Length ${image.jpeg.length} >>`,
+        image.jpeg,
+      );
     });
   }
 
-  for (const lines of text.pages) {
-    const [contentId, pageId] = [next++, next++];
-    pageIds.push(pageId);
-    const content = new TextEncoder().encode(textContent(lines));
-    objects.push(() => {
-      writer.object(contentId, `<< /Length ${content.length} >>`, content);
-      writer.object(pageId, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents ${contentId} 0 R >>`);
-    });
-  }
-
-  writer.object(1, '<< /Type /Catalog /Pages 2 0 R /Lang (de-DE) /ViewerPreferences << /DisplayDocTitle true >> >>');
-  writer.object(2, `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`);
-  writer.object(3, `<< /Title ${utf16Hex(input.title)} /Producer (VoxDoc) /CreationDate (${pdfDate(input.createdAt ?? new Date())}) >>`);
-  writer.object(4, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
-  writer.object(5, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
-  objects.forEach((write) => write());
-
+  const id = hex(crypto.getRandomValues(new Uint8Array(16)));
   const xref = writer.position;
   const lines = ['xref', `0 ${next}`, '0000000000 65535 f '];
-  for (let id = 1; id < next; id++) {
-    lines.push(`${String(writer.offsets[id]).padStart(10, '0')} 00000 n `);
+  for (let objectId = 1; objectId < next; objectId++) {
+    lines.push(`${String(writer.offsets[objectId]).padStart(10, '0')} 00000 n `);
   }
-  writer.write(`${lines.join('\n')}\ntrailer\n<< /Size ${next} /Root 1 0 R /Info 3 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
-  return { bytes: writer.bytes(), pageCount: pageIds.length, replacedCharacters: text.replaced };
+  writer.write(`${lines.join('\n')}\ntrailer\n<< /Size ${next} /Root ${CATALOG} 0 R /Info ${INFO} 0 R /ID [${id} ${id}] >>\nstartxref\n${xref}\n%%EOF\n`);
+
+  const count = (type: StructType) => elements.filter((element) => element.type === type).length;
+  return {
+    bytes: writer.bytes(),
+    pageCount: pages.length,
+    replacedCharacters: replaced,
+    structure: { headings: count('H1') + count('H2'), paragraphs: count('P'), figures: count('Figure') },
+  };
 }

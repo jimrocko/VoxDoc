@@ -883,3 +883,20 @@ progress {
 .voice-commands li {
   overflow-wrap: anywhere;
 }
+
+.radio-described {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.radio-described .radio {
+  font-weight: 600;
+}
+
+.radio-described .hint {
+  padding-inline: var(--space);
+}
+
+.radio-group + .field {
+  margin-top: var(--space);
+}

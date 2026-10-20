@@ -16,7 +16,7 @@ export type VoiceCommand =
   | { type: 'slower' }
   | { type: 'search'; query: string }
   | { type: 'save' }
-  | { type: 'exportPdf' }
+  | { type: 'export'; format: 'pdf' | 'html' | 'txt' }
   | { type: 'help' }
   | { type: 'commands' }
   | { type: 'home' }
@@ -40,7 +40,8 @@ export const commandHelp: { say: string; does: string }[] = [
   { say: 'Schneller / Langsamer', does: 'ändert das Sprechtempo' },
   { say: 'Stopp', does: 'beendet das Vorlesen' },
   { say: 'Suche nach …', does: 'durchsucht deine Dokumente, z. B. „Suche nach Stromrechnung“' },
-  { say: 'Als PDF exportieren', does: 'erstellt ein PDF des geöffneten Dokuments' },
+  { say: 'Als PDF exportieren', does: 'erstellt ein getaggtes PDF des geöffneten Dokuments' },
+  { say: 'Als HTML exportieren / Als Text exportieren', does: 'erstellt eine Webseite bzw. Textdatei des Dokuments' },
   { say: 'Start / Bibliothek / Einstellungen / Hilfe', does: 'öffnet den Bereich' },
   { say: 'Was kann ich sagen?', does: 'zeigt diese Liste' },
 ];
@@ -62,7 +63,9 @@ type Rule = [RegExp, (match: RegExpMatchArray) => VoiceCommand];
 
 const rules: Rule[] = [
   [/^(?:suche?n?|finde?|durchsuche)(?: (?:nach|mir))?(?: (.+))?$/, (m) => ({ type: 'search', query: (m[1] ?? '').trim() })],
-  [/(?:^| )pdf(?: |$)|^exportieren$/, () => ({ type: 'exportPdf' })],
+  [/(?:^| )pdf(?: |$)|^exportieren$/, () => ({ type: 'export', format: 'pdf' })],
+  [/^(?:als )?(?:html|webseite|internetseite)(?: exportieren| speichern)?$/, () => ({ type: 'export', format: 'html' })],
+  [/^(?:als )?(?:text|txt|textdatei)(?: exportieren| speichern)$/, () => ({ type: 'export', format: 'txt' })],
   [/^(?:(?:ein |das |neues )?(?:dokument|blatt|brief) )?scann?e?n?$|^neues dokument$|^scanner(?: öffnen)?$/, () => ({ type: 'scan' })],
   [/^(?:aufnehmen|auslösen|foto(?: machen)?|seite aufnehmen|aufnahme)$/, () => ({ type: 'capture' })],
   [/^(?:nächste|naechste) seite$|^seite (?:vor|weiter)$/, () => ({ type: 'nextPage' })],

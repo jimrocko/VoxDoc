@@ -39,7 +39,7 @@ export function listeningFailed(): void {
 const notHere: Partial<Record<CommandType, string>> = {
   capture: '„Aufnehmen“ geht im Scanner. Sage „Dokument scannen“, um ihn zu öffnen.',
   save: 'Hier gibt es nichts zu speichern. Dokumente speichert VoxDoc sofort; im Scanner sagst du „Speichern“.',
-  exportPdf: '„Als PDF exportieren“ geht in einem geöffneten Dokument. Öffne zuerst ein Dokument in der Bibliothek.',
+  export: 'Exportieren geht in einem geöffneten Dokument. Öffne zuerst ein Dokument in der Bibliothek.',
 };
 const readingHint = 'Das geht beim Vorlesen eines Dokuments. Öffne zuerst ein Dokument mit Text.';
 

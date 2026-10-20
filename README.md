@@ -20,7 +20,7 @@ den Text erkennen und vorlesen.
 - **Weiterlesen** – die Leseposition wird gespeichert; beim erneuten Öffnen geht es dort weiter.
 - **Datensicherung** – alle Dokumente als Datei exportieren und wiederherstellen, ohne Cloud.
 - **Sprachbefehle** – gesprochen (Safari) oder getippt/diktiert (überall), siehe [Sprachsteuerung](#sprachsteuerung).
-- **PDF-Export** – Fotos und Text eines Dokuments als PDF mit durchsuchbarem Text.
+- **Export** – als getaggtes PDF, semantisches HTML oder TXT, siehe [Export](#export-txt-html-pdf).
 - **Dokument** – Vorlesen, Text bearbeiten/diktieren, Umbenennen, Teilen (iOS-Teilen-Menü), Löschen.
 - **Vorlesen** – Pause und Fortsetzen am zuletzt gesprochenen Wort, vorheriger/nächster Absatz,
   Absatz wiederholen, Tempo ändern während des Vorlesens (siehe [Vorlesefunktion](#vorlesefunktion)).
@@ -101,7 +101,8 @@ Anschließend in Safari über „Teilen“ → „Zum Home-Bildschirm“ install
 │   ├── reader/             Vorlese-Logik (reader.ts) und Text-Aufteilung (text.ts)
 │   ├── voice/              Sprachbefehle: Parser (commands.ts), Spracherkennung (recognition.ts),
 │   │                       Ausführung (controller.ts), Befehlsfenster (panel.ts)
-│   ├── export/             PDF-Erzeuger ohne Fremdbibliothek (pdf.ts) und Dokument-Export (export.ts)
+│   ├── export/             Export: gemeinsames Modell (model.ts), TXT/HTML (formats.ts), getaggtes PDF
+│   │                       (pdf.ts), TrueType-Leser (ttf.ts), Browser-Teil (export.ts), fonts/ (Liberation Sans, OFL)
 │   ├── ocr/                Texterkennung: Dateien laden/cachen (assets.ts), Tesseract-Worker (engine.ts),
 │   │                       Warteschlange und Ansagen (service.ts), Textaufbereitung (format.ts), Fehler (errors.ts)
 │   ├── scan/               Scanner: Kamera (camera.ts), Bildanalyse (analyze.ts), Sprachführung
@@ -302,17 +303,10 @@ geöffnetes Dokument, „Aufnehmen“ ohne Live-Kamera, „Vorlesen“ ohne Text
 **„Nächste Seite“** setzt voraus, dass der Lesetext unverändert aus der Texterkennung stammt – nur dann ist
 bekannt, welcher Absatz zu welcher Seite gehört. Sonst nennt VoxDoc den Grund und verweist auf „Nächster Absatz“.
 
-### PDF-Export
+### Export per Sprache
 
-Eigener, kleiner PDF-Erzeuger (`src/export/pdf.ts`, ohne Abhängigkeit): jedes Foto als eigene A4-Seite (JPEG,
-vorher neu gezeichnet, damit die Ausrichtung stimmt), danach der Lesetext als echter Text in Helvetica mit
-WinAnsi-Kodierung (Umlaute, ß, „“, –, €). Zeichen außerhalb davon werden durch „?“ ersetzt, und VoxDoc sagt
-an, wie viele. Titel und Sprache (`/Lang de-DE`) stehen in den Metadaten. Getestet mit `pdfinfo` und
-`pdftotext`: Seitenzahl stimmt, Text mit Umlauten ist extrahierbar.
-
-Safari erlaubt Teilen und Herunterladen nur kurz nach einem Tippen. Kommt der Export per Sprachbefehl, ist
-diese Erlaubnis meist abgelaufen: VoxDoc meldet dann „PDF … ist fertig. Tippe auf ‚PDF speichern‘“ und zeigt
-diesen Knopf, statt einen Erfolg zu behaupten. Dasselbe gilt für die Datensicherung.
+„Als PDF exportieren“, „Als HTML exportieren“ und „Als Text exportieren“ wählen das Format und starten den
+Export. Siehe [Export](#export-txt-html-pdf).
 
 ### Einschränkungen
 
@@ -324,8 +318,82 @@ diesen Knopf, statt einen Erfolg zu behaupten. Dasselbe gilt für die Datensiche
   iOS-Sprachsteuerung.
 - Kein Dauerzuhören und kein Aktivierungswort: Jeder Befehl beginnt mit einem Tippen auf „Befehl“ bzw.
   „Sprechen“ (iOS verlangt dafür eine Benutzeraktion).
-- Das PDF ist nicht getaggt (kein PDF/UA); es enthält aber echten, durchsuchbaren Text.
 - Mit VoiceOver kann die Ansage eines Knopfs kurz vor dem Zuhören noch hörbar sein und mit aufgenommen werden.
+
+## Export (TXT, HTML, PDF)
+
+Im Dokument unter **„Exportieren“**: eine Optionsgruppe „Format“ (`<fieldset>`/`<legend>`, native
+Optionsfelder mit kurzem Namen und Beschreibung per `aria-describedby`), der Schalter „Fotos einschließen“
+(bei TXT ausgeblendet) und der Knopf „Exportieren“. Danach Teilen-Menü bzw. Download; ist Safaris
+Benutzeraktion abgelaufen (z. B. nach einem Sprachbefehl), erscheint „Datei speichern“ und erhält den Fokus.
+Jeder Schritt wird angesagt.
+
+### Gemeinsame Gliederung
+
+Alle Formate entstehen aus demselben Modell (`src/export/model.ts`) und haben dieselbe Lesereihenfolge:
+
+1. Titel (Überschrift 1)
+2. Angaben (Datum, Seitenzahl) und – falls der Text aus der Texterkennung stammt – ein Hinweis darauf
+3. bei unverändertem OCR-Text je Seite eine Überschrift 2 „Seite N“ mit ihren Absätzen (leere Seiten mit
+   Hinweis), sonst eine Überschrift „Text“
+4. optional „Fotos der Seiten“: Bildunterschrift und Foto mit Alternativtext
+
+Weitere Überschriften, Listen oder Tabellen erkennt die Texterkennung nicht; sie werden deshalb auch
+nicht erfunden.
+
+| Format | Inhalt |
+| --- | --- |
+| TXT | UTF-8 mit BOM; Überschriften unterstrichen (`===`, `---`), Absätze durch Leerzeilen getrennt |
+| HTML | eigenständige Seite: `lang="de"`, `<main>`/`<article>`/`<header>`, eine `<h1>`, je Abschnitt `<section aria-labelledby>` mit `<h2>`, `<p>`; Fotos als `<figure>` mit `alt` und `<figcaption>` (eingebettet als Data-URL); helles und dunkles Farbschema |
+| PDF | getaggtes PDF 1.7, siehe unten |
+
+### PDF: was der Erzeuger tatsächlich unterstützt
+
+VoxDoc nutzt **keine PDF-Bibliothek**, sondern einen eigenen Erzeuger (`src/export/pdf.ts`). Er kann genau das:
+
+| Struktur | umgesetzt |
+| --- | --- |
+| Strukturbaum (`StructTreeRoot`, `ParentTree`), `MarkInfo /Marked true` | ja |
+| Tags `Document`, `H1`, `H2`, `P`, `Figure` | ja – andere Tags (Listen, Tabellen, Links, Formulare) nicht |
+| Markierter Inhalt mit MCIDs; jede Zeile gehört zu ihrem Absatz, auch über Seitenwechsel | ja |
+| Seitenzahlen als Artefakt (`/Pagination /Footer`) | ja |
+| `Figure` mit Alternativtext (`/Alt`) und `BBox` | ja |
+| Eingebettete Schrift (Liberation Sans, vollständig, Flate-komprimiert) mit `ToUnicode` | ja – keine Teilmenge |
+| Dokumentsprache `/Lang (de-DE)`, XMP-Metadaten (`dc:title`, `dc:language`), `DisplayDocTitle` | ja |
+| Lesezeichen für alle Überschriften, `/Tabs /S` | ja |
+| PDF/UA-Kennung (`pdfuaid`) | **bewusst nein** |
+| Zeichen außerhalb von WinAnsi (z. B. Emoji, Kyrillisch) | nein – werden zu „?“, VoxDoc sagt an, wie viele |
+
+### Prüfung
+
+| Werkzeug | Ergebnis |
+| --- | --- |
+| veraPDF 1.30.3, Profil PDF/UA-1 | 105 von 106 Regeln bestanden; einziger Befund: Regel 5-1, die **fehlende PDF/UA-Kennung** |
+| `pdfinfo` | „Tagged: yes“, Titel aus den Metadaten |
+| `pdffonts` | Liberation Sans, TrueType, eingebettet, mit ToUnicode |
+| `pdftotext` | Text auswählbar und in der Lesereihenfolge des Strukturbaums |
+| `pypdf` | Strukturbaum: H1 › P › P › H2 › P … › H2 › P › Figure (mit Alt) |
+| W3C Nu Html Checker 26.10.12 | HTML ohne Fehler und Warnungen |
+| axe-core | exportiertes HTML ohne Befunde (hell und dunkel), Formatauswahl ohne Befunde |
+
+**Keine PDF/UA-Konformität:** veraPDF prüft nur die maschinell prüfbaren Bedingungen. Das Matterhorn-Protokoll
+verlangt zusätzlich Prüfungen durch Menschen (z. B. ob Alternativtexte und Lesereihenfolge inhaltlich passen).
+Die sind nicht erfolgt; deshalb trägt das PDF keine PDF/UA-Kennung und VoxDoc behauptet keine Konformität.
+
+Die veraPDF-Prüfung ist Teil der Tests und läuft, wenn veraPDF installiert ist:
+
+```bash
+VERAPDF=/pfad/zu/verapdf npm test
+```
+
+### Einschränkungen
+
+- **Nicht auf einem echten iPhone getestet** (Chromium). Wie VoiceOver in iOS ein getaggtes PDF in der
+  Dateien-App vorliest, ist nicht geprüft.
+- Die Schrift wird vollständig eingebettet (0,41 MB, komprimiert 0,21 MB je PDF); Teilmengen sind nicht umgesetzt.
+- Der PDF-Export braucht `CompressionStream` (Safari 16.4+); TXT und HTML gehen überall.
+- Fotos im PDF sind Bilder mit Alternativtext; der erkannte Text liegt nicht unsichtbar über dem Foto.
+- HTML mit Fotos kann groß werden, weil die Fotos eingebettet sind.
 
 ## Dokumentverwaltung und Datenhaltung
 
@@ -589,3 +657,9 @@ verringert Überschneidungen so:
 ## Lizenz
 
 Noch nicht festgelegt.
+
+Mitgelieferte Drittanbieter-Inhalte:
+
+- **Liberation Sans** (`src/export/fonts/`) – SIL Open Font License 1.1, Lizenztext in
+  `src/export/fonts/LiberationSans-OFL.txt`; wird in exportierte PDFs eingebettet.
+- **Tesseract.js** (Apache-2.0) und deutsche Sprachdaten `@tesseract.js-data/deu` (MIT) für die Texterkennung.

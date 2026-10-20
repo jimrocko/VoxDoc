@@ -2,7 +2,7 @@ import { h } from '../dom.ts';
 import { status } from '../feedback.ts';
 import { spokenDate } from '../format.ts';
 import { href, navigate } from '../router.ts';
-import { documentToPdf } from '../export/export.ts';
+import { exportDocument, ExportError, exportErrorMessages, formatLabels, type ExportFormat } from '../export/export.ts';
 import { textFromOcr } from '../ocr/format.ts';
 import { pageMapFor } from '../reader/pages.ts';
 import { splitParagraphs } from '../reader/text.ts';
@@ -208,42 +208,97 @@ export async function documentView(id: string): Promise<View> {
       )
     : null;
 
-  // ---------- PDF ----------
-  const pdfButton = h('button', { type: 'button', class: 'button button-secondary' }, 'Als PDF exportieren');
-  let pdfLabel = '';
-  const pdfDelivery = createDelivery('PDF speichern', (result, name) => {
+  // ---------- Exportieren ----------
+  const formats: ExportFormat[] = ['pdf', 'html', 'txt'];
+  const formatHints: Record<ExportFormat, string> = {
+    pdf: 'Getaggtes PDF mit Überschriften, Absätzen und echtem Text',
+    html: 'Webseite mit Überschriften und Absätzen, in jedem Browser lesbar',
+    txt: 'Nur der Text, ohne Fotos',
+  };
+  let exportFormat: ExportFormat = 'pdf';
+  const formatInputs = new Map<ExportFormat, HTMLInputElement>();
+  const photosToggle = h('input', { id: 'export-photos', type: 'checkbox', switch: true, checked: doc.pages.length > 0, disabled: doc.pages.length === 0 });
+  const photosField = h(
+    'div',
+    { class: 'field field-toggle' },
+    h('label', { for: 'export-photos' }, 'Fotos einschließen'),
+    photosToggle,
+    h('p', { class: 'hint', id: 'export-photos-hint' }, 'Die Fotos werden mit Alternativtext hinter dem Text eingefügt.'),
+  );
+  photosToggle.setAttribute('aria-describedby', 'export-photos-hint');
+  const setFormat = (format: ExportFormat): void => {
+    exportFormat = format;
+    formatInputs.get(format)!.checked = true;
+    // TXT kann keine Fotos enthalten – Schalter ausblenden statt wirkungslos anzubieten.
+    photosField.hidden = format === 'txt' || doc.pages.length === 0;
+  };
+  const formatGroup = h(
+    'fieldset',
+    { class: 'radio-group' },
+    h('legend', null, 'Format'),
+    ...formats.map((format) => {
+      const input = h('input', {
+        type: 'radio',
+        name: 'export-format',
+        value: format,
+        'aria-describedby': `export-hint-${format}`,
+        onchange: () => setFormat(format),
+      });
+      formatInputs.set(format, input);
+      // Beschreibung außerhalb des Labels: Der Name bleibt kurz („PDF“), die Beschreibung folgt einmal.
+      return h(
+        'div',
+        { class: 'radio-described' },
+        h('label', { class: 'radio' }, input, formatLabels[format]),
+        h('p', { class: 'hint', id: `export-hint-${format}` }, formatHints[format]),
+      );
+    }),
+  );
+  const exportButton = h('button', { type: 'button', class: 'button button-primary' }, 'Exportieren');
+  let exportSummary = '';
+  const delivery = createDelivery('Datei speichern', (result, name) => {
     if (result === 'needsTap') {
-      status(`${pdfLabel} ist fertig. Tippe auf „PDF speichern“, um es abzulegen.`);
+      status(`${exportSummary} ist fertig. Tippe auf „Datei speichern“, um sie abzulegen.`);
     } else if (result === 'cancelled') {
-      status('PDF nicht gespeichert.');
+      status('Export nicht gespeichert.');
     } else if (result === 'downloaded') {
-      status(`${pdfLabel} heruntergeladen als „${name}“. Du findest es in der Dateien-App unter Downloads.`, 'success');
+      status(`${exportSummary} heruntergeladen als „${name}“. Du findest sie in der Dateien-App unter Downloads.`, 'success');
     } else {
-      status(`${pdfLabel} weitergegeben.`, 'success');
+      status(`${exportSummary} weitergegeben.`, 'success');
     }
   });
-  const exportPdf = async (): Promise<void> => {
-    pdfButton.disabled = true;
-    status('PDF wird erstellt …');
+  const runExport = async (format: ExportFormat = exportFormat): Promise<void> => {
+    setFormat(format);
+    exportButton.disabled = true;
+    status(`${formatLabels[format]} wird erstellt …`);
     try {
-      const pdf = await documentToPdf(doc);
-      const parts = [`PDF mit ${pdf.pageCount === 1 ? '1 Seite' : `${pdf.pageCount} Seiten`}`];
-      if (!pdf.hasText) {
-        parts.push('ohne Text');
+      const result = await exportDocument(doc, format, photosToggle.checked);
+      exportSummary = result.summary;
+      if (result.replacedCharacters > 0) {
+        status(`${result.replacedCharacters} Zeichen konnten im PDF nicht dargestellt werden und wurden durch Fragezeichen ersetzt.`);
       }
-      pdfLabel = parts.join(', ');
-      if (pdf.replacedCharacters > 0) {
-        status(`${pdf.replacedCharacters} Zeichen konnten im PDF nicht dargestellt werden und wurden durch Fragezeichen ersetzt.`);
-      }
-      await pdfDelivery.deliver(pdf.blob, pdf.name);
+      await delivery.deliver(result.blob, result.name);
     } catch (error) {
       console.error(error);
-      status('Das PDF konnte nicht erstellt werden. Versuche es erneut.', 'error');
+      status(error instanceof ExportError ? exportErrorMessages[error.reason] : 'Der Export ist fehlgeschlagen. Versuche es erneut.', 'error');
     } finally {
-      pdfButton.disabled = false;
+      exportButton.disabled = false;
     }
   };
-  pdfButton.addEventListener('click', () => void exportPdf());
+  exportButton.addEventListener('click', () => void runExport());
+  setFormat('pdf');
+  const exportSection = section(
+    'export-heading',
+    'Exportieren',
+    formatGroup,
+    photosField,
+    h('div', { class: 'button-stack' }, exportButton, delivery.button),
+    h(
+      'p',
+      { class: 'hint' },
+      'Die Datei entsteht auf diesem iPhone. Danach wählst du im Teilen-Menü, wo sie gespeichert wird, zum Beispiel „In Dateien sichern“.',
+    ),
+  );
 
   const unregisterVoice = setVoiceContext({
     beforeListening: () => reader?.pauseQuietly?.(),
@@ -265,8 +320,8 @@ export async function documentView(id: string): Promise<View> {
         case 'repeat':
           status(doc.pages.length > 0 ? 'Dieses Dokument hat noch keinen Text zum Vorlesen. Starte die Texterkennung.' : 'Dieses Dokument hat noch keinen Text zum Vorlesen.', 'error');
           return true;
-        case 'exportPdf':
-          void exportPdf();
+        case 'export':
+          void runExport(command.format);
           return true;
         case 'save': {
           const form = formHolder.querySelector('form');
@@ -382,9 +437,10 @@ export async function documentView(id: string): Promise<View> {
     section(
       'actions-heading',
       'Bearbeiten',
-      h('div', { class: 'button-stack' }, editButton, renameButton, shareButton, pdfButton, pdfDelivery.button),
+      h('div', { class: 'button-stack' }, editButton, renameButton, shareButton),
       formHolder,
     ),
+    exportSection,
     photoSection,
     h('div', { class: 'button-stack danger-zone' }, deleteButton),
   );

@@ -105,12 +105,13 @@ export function helpView(): View {
         ),
       ),
       section(
-        'help-pdf',
-        'Als PDF exportieren',
+        'help-export',
+        'Exportieren',
         list(
-          'Im Dokument unter „Bearbeiten“ erstellt „Als PDF exportieren“ ein PDF mit allen Fotos in der gespeicherten Reihenfolge und danach dem Text als durchsuchbarem Text.',
-          'Danach öffnet sich das Teilen-Menü, zum Beispiel für „In Dateien sichern“. Kommt der Befehl per Sprache, verlangt Safari zum Speichern ein Tippen – dann erscheint der Knopf „PDF speichern“.',
-          'Der Text im PDF ist echter Text: Er lässt sich durchsuchen und kopieren. Das PDF ist aber nicht für Screenreader ausgezeichnet (keine Tags).',
+          'Im Dokument findest du den Bereich „Exportieren“. Wähle unter „Format“ PDF, HTML-Webseite oder Text (TXT) und tippe auf „Exportieren“. Danach öffnet sich das Teilen-Menü, zum Beispiel für „In Dateien sichern“.',
+          'Alle Formate enthalten echten Text mit derselben Gliederung: Titel, Angaben, je Seite eine Überschrift mit den Absätzen, danach auf Wunsch die Fotos mit Alternativtext.',
+          'Das PDF ist getaggt: Überschriften, Absätze und Fotos sind ausgezeichnet, die Schrift ist eingebettet und die Seitenzahlen gelten nicht als Inhalt. Es ist nicht als PDF/UA gekennzeichnet, weil dafür auch Prüfungen durch Menschen nötig sind.',
+          'Per Sprache sagst du „Als PDF exportieren“, „Als HTML exportieren“ oder „Als Text exportieren“. Safari verlangt zum Speichern dann noch ein Tippen auf „Datei speichern“.',
         ),
       ),
       section(
