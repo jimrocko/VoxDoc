@@ -1,3 +1,7 @@
+import { textFromOcr } from '../ocr/format.ts';
+import { STORES, transact } from './db.ts';
+import { StorageError } from './errors.ts';
+
 /** Ergebnis der Texterkennung für eine Seite – unverändert, wie die OCR es geliefert hat. */
 export interface OcrPageResult {
   text: string;
@@ -29,10 +33,6 @@ export interface VoxDocument {
   updatedAt: number;
 }
 
-const DB_NAME = 'voxdoc';
-const DB_VERSION = 2;
-const STORE = 'documents';
-
 type StoredDocument = Omit<VoxDocument, 'pages' | 'ocr'> & { pages?: Blob[]; image?: Blob | null; ocr?: OcrResult | null };
 
 /** Bringt auch Datensätze im alten Format in die aktuelle Form. */
@@ -41,85 +41,102 @@ function normalize(stored: StoredDocument): VoxDocument {
   return { ...rest, pages: pages ?? (image ? [image] : []), ocr: ocr ?? null };
 }
 
-let dbPromise: Promise<IDBDatabase> | null = null;
-
-function openDb(): Promise<IDBDatabase> {
-  dbPromise ??= new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = (event) => {
-      if (event.oldVersion < 1) {
-        request.result.createObjectStore(STORE, { keyPath: 'id' });
-        return;
-      }
-      if (event.oldVersion < 2) {
-        // Version 1 kannte nur ein Foto pro Dokument (`image`).
-        const store = request.transaction!.objectStore(STORE);
-        store.openCursor().onsuccess = (cursorEvent) => {
-          const cursor = (cursorEvent.target as IDBRequest<IDBCursorWithValue | null>).result;
-          if (cursor) {
-            cursor.update(normalize(cursor.value));
-            cursor.continue();
-          }
-        };
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => {
-      dbPromise = null;
-      reject(request.error ?? new Error('Datenbank konnte nicht geöffnet werden'));
-    };
-  });
-  return dbPromise;
-}
-
-async function run<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE, mode);
-    const request = action(transaction.objectStore(STORE));
-    transaction.oncomplete = () => resolve(request.result);
-    transaction.onerror = () => reject(transaction.error ?? new Error('Speichern fehlgeschlagen'));
-    transaction.onabort = () => reject(transaction.error ?? new Error('Speichern abgebrochen'));
-  });
-}
+const documents = (transaction: IDBTransaction): IDBObjectStore => transaction.objectStore(STORES.documents);
 
 /** Alle Dokumente, neueste zuerst. */
 export async function listDocuments(): Promise<VoxDocument[]> {
-  const stored = await run('readonly', (store) => store.getAll() as IDBRequest<StoredDocument[]>);
+  const stored = await transact(STORES.documents, 'readonly', (t) => documents(t).getAll() as IDBRequest<StoredDocument[]>);
   return stored.map(normalize).sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function getDocument(id: string): Promise<VoxDocument | undefined> {
-  const stored = await run('readonly', (store) => store.get(id) as IDBRequest<StoredDocument | undefined>);
+  const stored = await transact(STORES.documents, 'readonly', (t) => documents(t).get(id) as IDBRequest<StoredDocument | undefined>);
   return stored && normalize(stored);
 }
 
 export async function createDocument(fields: Pick<VoxDocument, 'title' | 'pages'>): Promise<VoxDocument> {
   const now = Date.now();
   const doc: VoxDocument = { id: crypto.randomUUID(), text: '', ocr: null, createdAt: now, updatedAt: now, ...fields };
-  await run('readwrite', (store) => store.add(doc));
+  await transact(STORES.documents, 'readwrite', (t) => documents(t).add(doc));
   return doc;
+}
+
+async function requireDocument(id: string): Promise<VoxDocument> {
+  const current = await getDocument(id);
+  if (!current) {
+    throw new StorageError('notFound');
+  }
+  return current;
 }
 
 export async function updateDocument(
   id: string,
   changes: Partial<Pick<VoxDocument, 'title' | 'text' | 'ocr'>>,
 ): Promise<VoxDocument> {
-  const current = await getDocument(id);
-  if (!current) {
-    throw new Error('Dokument nicht gefunden');
-  }
-  const doc = { ...current, ...changes, updatedAt: Date.now() };
-  await run('readwrite', (store) => store.put(doc));
+  const doc = { ...(await requireDocument(id)), ...changes, updatedAt: Date.now() };
+  // Ändert sich der Text, passt die gespeicherte Leseposition nicht mehr.
+  const textChanged = changes.text !== undefined;
+  await transact([STORES.documents, STORES.positions], 'readwrite', (t) => {
+    documents(t).put(doc);
+    if (textChanged) {
+      t.objectStore(STORES.positions).delete(id);
+    }
+  });
   return doc;
 }
 
+/**
+ * Verschiebt eine Seite. Fotos und OCR-Ergebnisse wandern gemeinsam; der
+ * Lesetext wird nur neu zusammengesetzt, wenn er nicht selbst bearbeitet wurde.
+ */
+export async function movePage(
+  id: string,
+  from: number,
+  to: number,
+): Promise<{ doc: VoxDocument; textReordered: boolean }> {
+  const current = await requireDocument(id);
+  if (from === to || from < 0 || to < 0 || from >= current.pages.length || to >= current.pages.length) {
+    return { doc: current, textReordered: false };
+  }
+  const move = <T>(items: readonly T[]): T[] => {
+    const copy = [...items];
+    const [item] = copy.splice(from, 1);
+    copy.splice(to, 0, item!);
+    return copy;
+  };
+  const ocrMatches = current.ocr !== null && current.ocr.pages.length === current.pages.length;
+  const ocr = ocrMatches ? { ...current.ocr!, pages: move(current.ocr!.pages) } : current.ocr;
+  const untouched = ocrMatches && current.text === textFromOcr(current.ocr!);
+  const doc: VoxDocument = {
+    ...current,
+    pages: move(current.pages),
+    ocr,
+    text: untouched ? textFromOcr(ocr!) : current.text,
+    updatedAt: Date.now(),
+  };
+  const textReordered = untouched && doc.text !== current.text;
+  await transact([STORES.documents, STORES.positions], 'readwrite', (t) => {
+    documents(t).put(doc);
+    if (textReordered) {
+      t.objectStore(STORES.positions).delete(id);
+    }
+  });
+  return { doc, textReordered };
+}
+
+/** Löscht das Dokument samt Leseposition in einer Transaktion. */
 export async function deleteDocument(id: string): Promise<void> {
-  await run('readwrite', (store) => store.delete(id));
+  await transact([STORES.documents, STORES.positions], 'readwrite', (t) => {
+    documents(t).delete(id);
+    t.objectStore(STORES.positions).delete(id);
+  });
 }
 
 export async function deleteAllDocuments(): Promise<void> {
-  await run('readwrite', (store) => store.clear());
+  await transact([STORES.documents, STORES.positions], 'readwrite', (t) => {
+    documents(t).clear();
+    t.objectStore(STORES.positions).clear();
+  });
 }
 
 /** Bittet den Browser, die Daten nicht automatisch zu löschen (iOS 17+). */

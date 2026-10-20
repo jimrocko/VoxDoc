@@ -3,6 +3,7 @@ import { status } from '../feedback.ts';
 import { countLabel } from '../format.ts';
 import { searchDocuments } from '../search.ts';
 import { listDocuments } from '../storage/documents.ts';
+import { listPositions } from '../storage/positions.ts';
 import { documentList, viewHeader, type View } from './components.ts';
 
 const ANNOUNCE_DELAY_MS = 700;
@@ -11,7 +12,7 @@ const ANNOUNCE_DELAY_MS = 700;
 let lastQuery = '';
 
 export async function searchView(): Promise<View> {
-  const documents = await listDocuments();
+  const [documents, positions] = await Promise.all([listDocuments(), listPositions().catch(() => new Map())]);
   let announceTimer: number | undefined;
 
   const summary = h('p', { class: 'view-intro', id: 'search-summary' });
@@ -54,6 +55,7 @@ export async function searchView(): Promise<View> {
               const snippet = hits.find((hit) => hit.doc === doc)?.snippet;
               return snippet ? h('span', { class: 'doc-snippet' }, snippet) : null;
             },
+            positions,
           )
         : h('p', { class: 'empty' }, 'Versuche einen anderen oder kürzeren Suchbegriff.'),
     );

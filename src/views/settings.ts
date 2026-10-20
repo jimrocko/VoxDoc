@@ -14,6 +14,9 @@ import {
 } from '../storage/settings.ts';
 import { cachedOcrBytes, deleteOcrAssets, loadOcrAssets } from '../ocr/assets.ts';
 import { classifyOcrError, DOWNLOAD_MB, ocrErrorMessages } from '../ocr/errors.ts';
+import { backupFileName, createBackup, restoreBackup } from '../storage/backup.ts';
+import { storageErrorMessage } from '../storage/errors.ts';
+import { checkStorageHealth, EVICTION_HINT } from '../storage/health.ts';
 import { section, viewHeader, type View } from './components.ts';
 
 const themeLabels: Record<Theme, string> = {
@@ -275,33 +278,54 @@ function themeSection(): HTMLElement {
 }
 
 async function storageSection(): Promise<HTMLElement> {
-  const documents = await listDocuments();
-  const summary = h('p', null, `${countLabel(documents.length, 'Dokument', 'Dokumente')} gespeichert.`);
+  const summary = h('p', null);
+  const persistence = h('p', { id: 'storage-persistence' });
+  let count = 0;
   try {
-    const estimate = await navigator.storage?.estimate?.();
-    if (estimate?.usage !== undefined) {
-      summary.textContent += ` Belegter Speicher: etwa ${megabytes(estimate.usage)}.`;
-    }
-  } catch {
-    // Speicherschätzung nicht verfügbar.
+    count = (await listDocuments()).length;
+    summary.textContent = `${countLabel(count, 'Dokument', 'Dokumente')} gespeichert.`;
+  } catch (error) {
+    summary.textContent = storageErrorMessage(error);
   }
+  const health = await checkStorageHealth();
+  if (health.usage !== null) {
+    summary.textContent += ` Belegter Speicher: etwa ${megabytes(health.usage)}${health.quota ? ` von ${megabytes(health.quota)}` : ''}.`;
+  }
+  const notes: string[] = [];
+  if (health.nearlyFull) {
+    notes.push('Der Speicher ist fast voll. Neue Scans können fehlschlagen.');
+  }
+  if (health.persisted === true) {
+    notes.push('Safari hat zugesagt, die Daten nicht automatisch zu löschen.');
+  } else if (health.evictionRisk) {
+    notes.push(EVICTION_HINT);
+  } else {
+    notes.push('Erstelle regelmäßig eine Sicherung, damit beim Löschen der App oder einem neuen iPhone nichts verloren geht.');
+  }
+  persistence.textContent = notes.join(' ');
 
   return section(
     'storage-heading',
     'Speicher',
-    h('p', { class: 'hint' }, 'Alle Dokumente bleiben ausschließlich auf diesem iPhone.'),
+    h('p', { class: 'hint' }, 'Alle Dokumente bleiben ausschließlich auf diesem iPhone. Es gibt keine Anmeldung und keine Übertragung in eine Cloud.'),
     summary,
-    documents.length > 0
+    persistence,
+    count > 0
       ? h(
           'button',
           {
             type: 'button',
             class: 'button button-danger',
             onclick: async () => {
-              if (!window.confirm(`Wirklich alle ${documents.length} Dokumente löschen? Das kann nicht rückgängig gemacht werden.`)) {
+              if (!window.confirm(`Wirklich alle ${count} Dokumente löschen? Das kann nicht rückgängig gemacht werden. Erstelle vorher eine Sicherung, wenn du sie später noch brauchst.`)) {
                 return;
               }
-              await deleteAllDocuments();
+              try {
+                await deleteAllDocuments();
+              } catch (error) {
+                status(storageErrorMessage(error), 'error');
+                return;
+              }
               summary.textContent = 'Keine Dokumente gespeichert.';
               status('Alle Dokumente wurden gelöscht.', 'success');
             },
@@ -309,6 +333,97 @@ async function storageSection(): Promise<HTMLElement> {
           'Alle Dokumente löschen',
         )
       : null,
+  );
+}
+
+/** Übergibt eine Datei an das Teilen-Menü (z. B. „In Dateien sichern“) oder lädt sie herunter. */
+async function offerFile(blob: Blob, name: string): Promise<'shared' | 'downloaded' | 'cancelled'> {
+  const file = new File([blob], name, { type: blob.type });
+  if (typeof navigator.share === 'function' && navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: name });
+      return 'shared';
+    } catch (error) {
+      if ((error as DOMException).name === 'AbortError') {
+        return 'cancelled';
+      }
+      // Teilen nicht möglich – auf Herunterladen ausweichen.
+    }
+  }
+  const url = URL.createObjectURL(file);
+  const link = h('a', { href: url, download: name, hidden: true });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return 'downloaded';
+}
+
+function backupSection(): HTMLElement {
+  const exportButton = h('button', { type: 'button', class: 'button button-secondary' }, 'Sicherung erstellen');
+  const importButton = h('button', { type: 'button', class: 'button button-secondary' }, 'Sicherung wiederherstellen');
+  const input = h('input', { type: 'file', accept: 'application/json,.json', hidden: true, tabindex: '-1', 'aria-hidden': 'true' });
+
+  exportButton.addEventListener('click', async () => {
+    exportButton.disabled = true;
+    status('Sicherung wird erstellt …');
+    try {
+      const { blob, count } = await createBackup();
+      if (count === 0) {
+        status('Es gibt noch keine Dokumente zum Sichern.');
+        return;
+      }
+      const name = backupFileName();
+      const result = await offerFile(blob, name);
+      const what = `Sicherung mit ${countLabel(count, 'Dokument', 'Dokumenten')} (${megabytes(blob.size)})`;
+      if (result === 'cancelled') {
+        status(`${what} wurde nicht gespeichert.`);
+      } else if (result === 'downloaded') {
+        status(`${what} heruntergeladen als „${name}“. Du findest sie in der Dateien-App unter Downloads.`, 'success');
+      } else {
+        status(`${what} weitergegeben.`, 'success');
+      }
+    } catch (error) {
+      status(`Die Sicherung konnte nicht erstellt werden. ${storageErrorMessage(error)}`, 'error');
+    } finally {
+      exportButton.disabled = false;
+      exportButton.focus();
+    }
+  });
+
+  importButton.addEventListener('click', () => input.click());
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) {
+      return;
+    }
+    status('Sicherung wird gelesen …');
+    try {
+      const { added, skipped } = await restoreBackup(file);
+      const parts = [`${countLabel(added, 'Dokument', 'Dokumente')} wiederhergestellt.`];
+      if (skipped > 0) {
+        parts.push(`${countLabel(skipped, 'Dokument war', 'Dokumente waren')} schon vorhanden und ${skipped === 1 ? 'blieb' : 'blieben'} unverändert.`);
+      }
+      status(parts.join(' '), added > 0 ? 'success' : 'info');
+    } catch (error) {
+      status(storageErrorMessage(error), 'error');
+    } finally {
+      importButton.focus();
+    }
+  });
+
+  return section(
+    'backup-heading',
+    'Datensicherung',
+    h(
+      'p',
+      { class: 'hint' },
+      'Speichert alle Dokumente mit Fotos, Text und Leseposition in einer Datei. Du entscheidest selbst, wo sie abgelegt wird, zum Beispiel in der Dateien-App. VoxDoc überträgt nichts automatisch.',
+    ),
+    h('div', { class: 'button-stack' }, exportButton, importButton),
+    h('p', { class: 'hint' }, 'Beim Wiederherstellen werden nur fehlende Dokumente ergänzt; vorhandene bleiben unverändert.'),
+    input,
   );
 }
 
@@ -342,6 +457,7 @@ export async function settingsView(): Promise<View> {
       ocr.element,
       themeSection(),
       await storageSection(),
+      backupSection(),
       aboutSection(),
     ),
     destroy: () => {

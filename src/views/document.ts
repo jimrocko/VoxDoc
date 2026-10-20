@@ -2,8 +2,11 @@ import { h } from '../dom.ts';
 import { status } from '../feedback.ts';
 import { spokenDate } from '../format.ts';
 import { href, navigate } from '../router.ts';
+import { textFromOcr } from '../ocr/format.ts';
 import { splitParagraphs } from '../reader/text.ts';
-import { deleteDocument, getDocument, updateDocument, type VoxDocument } from '../storage/documents.ts';
+import { deleteDocument, getDocument, movePage, updateDocument, type VoxDocument } from '../storage/documents.ts';
+import { storageErrorMessage } from '../storage/errors.ts';
+import { getPosition, savePosition, type ReadingPosition } from '../storage/positions.ts';
 import { section, viewHeader, type View } from './components.ts';
 import { notFoundView } from './not-found.ts';
 import { ocrPanel } from './ocr-panel.ts';
@@ -33,7 +36,9 @@ export async function documentView(id: string): Promise<View> {
     return notFoundView('Dieses Dokument gibt es nicht mehr. Vielleicht wurde es gelöscht.');
   }
   let doc: VoxDocument = found;
-  const pageUrls = doc.pages.map((page) => URL.createObjectURL(page));
+  let pageUrls: string[] = [];
+  // Eine fehlende Leseposition ist kein Fehler – dann beginnt das Vorlesen am Anfang.
+  const storedPosition: ReadingPosition | null = await getPosition(doc.id, doc.text).catch(() => null);
 
   const header = viewHeader(doc.title, h('p', { class: 'view-intro' }, `Gescannt am ${spokenDate(doc.createdAt)}.`));
   const title = header.querySelector('h1') as HTMLHeadingElement;
@@ -43,7 +48,7 @@ export async function documentView(id: string): Promise<View> {
   const readerHolder = h('div', null);
   let reader: ReaderPanel | null = null;
 
-  const renderText = (): void => {
+  const renderText = (position: ReadingPosition | null = null): void => {
     reader?.destroy();
     reader = null;
     const texts = splitParagraphs(doc.text);
@@ -62,10 +67,19 @@ export async function documentView(id: string): Promise<View> {
     }
     const elements = texts.map((text) => h('p', null, text));
     textBody.replaceChildren(...elements);
-    reader = readerPanel(texts, elements);
+    const text = doc.text;
+    reader = readerPanel(texts, elements, {
+      position,
+      save: (current) => {
+        savePosition({ docId: doc.id, ...current }, text).catch((error: unknown) => {
+          // Nur die Leseposition geht verloren; das Dokument selbst ist sicher.
+          console.warn('Leseposition nicht gespeichert', error);
+        });
+      },
+    });
     readerHolder.replaceChildren(reader.element);
   };
-  renderText();
+  renderText(storedPosition);
 
   // ---------- Texterkennung ----------
   const ocr =
@@ -110,7 +124,7 @@ export async function documentView(id: string): Promise<View> {
             closeForm();
           } catch (error) {
             console.error(error);
-            status('Speichern fehlgeschlagen. Bitte versuche es erneut.', 'error');
+            status(storageErrorMessage(error), 'error');
           }
         },
       },
@@ -199,13 +213,84 @@ export async function documentView(id: string): Promise<View> {
         if (!window.confirm(`„${doc.title}“ wirklich löschen? Das kann nicht rückgängig gemacht werden.`)) {
           return;
         }
-        await deleteDocument(doc.id);
-        status('Dokument gelöscht.', 'success');
+        try {
+          await deleteDocument(doc.id);
+        } catch (error) {
+          status(storageErrorMessage(error), 'error');
+          return;
+        }
+        status(`„${doc.title}“ gelöscht.`, 'success');
         navigate({ name: 'library' });
       },
     },
     'Dokument löschen',
   );
+
+  // ---------- Seiten (Fotos und Reihenfolge) ----------
+  const photoHeading = h('h2', { id: 'photo-heading', tabindex: '-1' });
+  const photoList = h('ol', { class: 'page-list' });
+  const photoSection = doc.pages.length > 0 ? h('section', { class: 'section', 'aria-labelledby': 'photo-heading' }, photoHeading, photoList) : null;
+
+  const renderPhotos = (focus?: { index: number; direction: 'up' | 'down' }): void => {
+    pageUrls.forEach((url) => URL.revokeObjectURL(url));
+    pageUrls = doc.pages.map((page) => URL.createObjectURL(page));
+    const count = pageUrls.length;
+    photoHeading.textContent = count === 1 ? 'Foto' : `Fotos (${count} Seiten)`;
+    const moveButtons: { up?: HTMLButtonElement; down?: HTMLButtonElement }[] = [];
+    photoList.replaceChildren(
+      ...pageUrls.map((url, index) => {
+        const number = index + 1;
+        const buttons: { up?: HTMLButtonElement; down?: HTMLButtonElement } = {};
+        if (index > 0) {
+          buttons.up = h('button', { type: 'button', class: 'button button-secondary', onclick: () => void move(index, index - 1, 'up') }, `Seite ${number} nach vorn verschieben`);
+        }
+        if (index < count - 1) {
+          buttons.down = h('button', { type: 'button', class: 'button button-secondary', onclick: () => void move(index, index + 1, 'down') }, `Seite ${number} nach hinten verschieben`);
+        }
+        moveButtons.push(buttons);
+        return h(
+          'li',
+          { class: 'doc-page' },
+          h(
+            'figure',
+            { class: 'doc-photo' },
+            h('img', {
+              src: url,
+              alt: count === 1 ? `Foto des Dokuments „${doc.title}“` : `Foto von Seite ${number}`,
+              decoding: 'async',
+            }),
+            count > 1 ? h('figcaption', null, `Seite ${number} von ${count}`) : null,
+          ),
+          count > 1 ? h('div', { class: 'button-row' }, buttons.up ?? null, buttons.down ?? null) : null,
+        );
+      }),
+    );
+    if (focus) {
+      // Fokus bleibt bei der verschobenen Seite, damit man sie weiter verschieben kann.
+      const target = moveButtons[focus.index];
+      (target?.[focus.direction] ?? target?.up ?? target?.down ?? photoHeading).focus();
+    }
+  };
+
+  const move = async (from: number, to: number, direction: 'up' | 'down'): Promise<void> => {
+    try {
+      const result = await movePage(doc.id, from, to);
+      doc = result.doc;
+      renderPhotos({ index: to, direction });
+      const notes = [`Seite ${from + 1} ist jetzt Seite ${to + 1}.`];
+      if (result.textReordered) {
+        renderText();
+        notes.push('Der erkannte Text wurde neu geordnet.');
+      } else if (doc.ocr && doc.text.trim() && doc.text !== textFromOcr(doc.ocr)) {
+        notes.push('Dein bearbeiteter Text wurde nicht umsortiert.');
+      }
+      ocr?.refresh();
+      status(notes.join(' '), 'success');
+    } catch (error) {
+      status(storageErrorMessage(error), 'error');
+    }
+  };
+  renderPhotos();
 
   const element = h(
     'div',
@@ -221,24 +306,7 @@ export async function documentView(id: string): Promise<View> {
       h('div', { class: 'button-stack' }, editButton, renameButton, shareButton),
       formHolder,
     ),
-    pageUrls.length > 0
-      ? section(
-          'photo-heading',
-          pageUrls.length === 1 ? 'Foto' : `Fotos (${pageUrls.length} Seiten)`,
-          ...pageUrls.map((url, index) =>
-            h(
-              'figure',
-              { class: 'doc-photo' },
-              h('img', {
-                src: url,
-                alt: pageUrls.length === 1 ? `Foto des Dokuments „${doc.title}“` : `Foto von Seite ${index + 1}`,
-                decoding: 'async',
-              }),
-              pageUrls.length > 1 ? h('figcaption', null, `Seite ${index + 1} von ${pageUrls.length}`) : null,
-            ),
-          ),
-        )
-      : null,
+    photoSection,
     h('div', { class: 'button-stack danger-zone' }, deleteButton),
   );
 

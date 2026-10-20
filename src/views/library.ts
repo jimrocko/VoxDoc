@@ -2,6 +2,7 @@ import { h } from '../dom.ts';
 import { status } from '../feedback.ts';
 import { countLabel } from '../format.ts';
 import { listDocuments, type VoxDocument } from '../storage/documents.ts';
+import { listPositions } from '../storage/positions.ts';
 import { getSettings, updateSettings, type LibrarySort } from '../storage/settings.ts';
 import { documentList, scanButtons, viewHeader, type View } from './components.ts';
 
@@ -24,7 +25,7 @@ export function sortDocuments(documents: readonly VoxDocument[], sort: LibrarySo
 }
 
 export async function libraryView(): Promise<View> {
-  const documents = await listDocuments();
+  const [documents, positions] = await Promise.all([listDocuments(), listPositions().catch(() => new Map())]);
   const count = countLabel(documents.length, 'Dokument', 'Dokumente');
 
   if (documents.length === 0) {
@@ -42,7 +43,7 @@ export async function libraryView(): Promise<View> {
 
   const listHolder = h('div', null);
   const renderList = (sort: LibrarySort): void => {
-    listHolder.replaceChildren(documentList(sortDocuments(documents, sort)));
+    listHolder.replaceChildren(documentList(sortDocuments(documents, sort), null, positions));
   };
 
   const select = h(

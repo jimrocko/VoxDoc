@@ -8,7 +8,17 @@ import { Camera, cameraAvailability, describeCameraError, permissionDenied, type
 import { Guide } from '../scan/guidance.ts';
 import { captureVideoFrame, sampleVideoFrame } from '../scan/image.ts';
 import { pickImages, prepareFiles, saveScannedDocument, type PickSource } from '../scan/scan.ts';
-import { addPage, clearPages, removePage, replacePage, scanPages } from '../scan/session.ts';
+import {
+  addPage,
+  clearPages,
+  movePageInScan,
+  removePage,
+  replacePage,
+  restorePages,
+  scanPages,
+  setPersistErrorHandler,
+} from '../scan/session.ts';
+import { storageErrorMessage } from '../storage/errors.ts';
 import { getSettings, updateSettings } from '../storage/settings.ts';
 import { section, viewHeader, type View } from './components.ts';
 
@@ -130,6 +140,12 @@ export function scannerView(): View {
             { class: 'page-actions' },
             h('span', { class: 'page-label' }, `Seite ${number}`),
             h('button', { type: 'button', class: 'button button-secondary', onclick: () => startRetake(index) }, `Seite ${number} neu aufnehmen`),
+            index > 0
+              ? h('button', { type: 'button', class: 'button button-secondary', 'data-move': `${index}-up`, onclick: () => movePage(index, index - 1, 'up') }, `Seite ${number} nach vorn verschieben`)
+              : null,
+            index < pages.length - 1
+              ? h('button', { type: 'button', class: 'button button-secondary', 'data-move': `${index}-down`, onclick: () => movePage(index, index + 1, 'down') }, `Seite ${number} nach hinten verschieben`)
+              : null,
             h('button', { type: 'button', class: 'button button-danger', onclick: () => deletePage(index) }, `Seite ${number} entfernen`),
           ),
         );
@@ -174,6 +190,22 @@ export function scannerView(): View {
     } else {
       status(`Neuaufnahme von Seite ${index + 1}. Wähle unten die Kamera-App oder die Mediathek.`);
     }
+  }
+
+  function movePage(from: number, to: number, direction: 'up' | 'down'): void {
+    movePageInScan(from, to);
+    if (retakeIndex === from) {
+      retakeIndex = to;
+    } else if (retakeIndex === to) {
+      retakeIndex = from;
+    }
+    renderPages();
+    // Fokus bleibt bei der verschobenen Seite, damit man sie weiter verschieben kann.
+    const button =
+      pagesList.querySelector<HTMLButtonElement>(`[data-move="${to}-${direction}"]`) ??
+      pagesList.querySelector<HTMLButtonElement>(`[data-move^="${to}-"]`);
+    (button ?? pagesHeading).focus();
+    status(`Seite ${from + 1} ist jetzt Seite ${to + 1}.`, 'success');
   }
 
   function deletePage(index: number): void {
@@ -358,7 +390,8 @@ export function scannerView(): View {
       clearPages();
     } catch (error) {
       console.error(error);
-      status('Das Dokument konnte nicht gespeichert werden. Bitte versuche es erneut.', 'error');
+      // Die Seiten bleiben im Entwurf erhalten und können erneut gespeichert werden.
+      status(`Das Dokument wurde nicht gespeichert. ${storageErrorMessage(error)} Die aufgenommenen Seiten bleiben erhalten.`, 'error');
       saveButton.disabled = false;
     }
   });
@@ -381,7 +414,24 @@ export function scannerView(): View {
       label,
     );
 
+  let persistErrorShown = false;
+  setPersistErrorHandler((error) => {
+    // Einmal pro Besuch melden, nicht bei jeder weiteren Seite erneut.
+    if (!persistErrorShown) {
+      persistErrorShown = true;
+      status(`Der Zwischenstand des Scans konnte nicht gesichert werden. Speichere das Dokument bald. ${storageErrorMessage(error)}`, 'error');
+    }
+  });
+
   renderPages();
+  void restorePages()
+    .then((restored) => {
+      if (restored > 0 && !destroyed) {
+        renderPages();
+        status(`Ein unvollständiger Scan mit ${countLabel(restored, 'Seite', 'Seiten')} wurde wiederhergestellt.`);
+      }
+    })
+    .catch((error: unknown) => console.warn('Scan-Entwurf nicht lesbar', error));
   void startCamera(false);
 
   const element = h(
@@ -407,6 +457,7 @@ export function scannerView(): View {
     element,
     destroy: () => {
       destroyed = true;
+      setPersistErrorHandler(null);
       document.removeEventListener('visibilitychange', onVisibility);
       stopCamera();
       for (const url of thumbnails.values()) {

@@ -15,7 +15,10 @@ den Text erkennen und vorlesen.
   und lokal gespeichert.
 - **Texterkennung (OCR)** – Tesseract.js lokal im Browser, deutsches Modell, offline nach dem ersten
   Laden; startet automatisch nach dem Scannen (siehe [Texterkennung](#texterkennung-ocr)).
-- **Bibliothek** – alle Dokumente, sortierbar nach Datum oder Name.
+- **Bibliothek** – alle Dokumente, sortierbar nach Datum oder Name, mit Lesefortschritt
+  („weiterlesen ab Absatz 3 von 8“); siehe [Dokumentverwaltung](#dokumentverwaltung-und-datenhaltung).
+- **Weiterlesen** – die Leseposition wird gespeichert; beim erneuten Öffnen geht es dort weiter.
+- **Datensicherung** – alle Dokumente als Datei exportieren und wiederherstellen, ohne Cloud.
 - **Dokument** – Vorlesen, Text bearbeiten/diktieren, Umbenennen, Teilen (iOS-Teilen-Menü), Löschen.
 - **Vorlesen** – Pause und Fortsetzen am zuletzt gesprochenen Wort, vorheriger/nächster Absatz,
   Absatz wiederholen, Tempo ändern während des Vorlesens (siehe [Vorlesefunktion](#vorlesefunktion)).
@@ -98,7 +101,9 @@ Anschließend in Safari über „Teilen“ → „Zum Home-Bildschirm“ install
 │   │                       Warteschlange und Ansagen (service.ts), Textaufbereitung (format.ts), Fehler (errors.ts)
 │   ├── scan/               Scanner: Kamera (camera.ts), Bildanalyse (analyze.ts), Sprachführung
 │   │                       (guidance.ts), Seiten des laufenden Scans (session.ts), Dateiauswahl (scan.ts)
-│   ├── storage/            Dokumente (IndexedDB) und Einstellungen (localStorage)
+│   ├── storage/            IndexedDB: db.ts (Schema, Transaktionen), documents.ts, positions.ts
+│   │                       (Leseposition), drafts.ts (Scan-Entwurf), backup.ts (Sicherung),
+│   │                       health.ts (Speicherzustand), errors.ts (Meldungen); settings.ts (localStorage)
 │   ├── audio/              Sprachausgabe (Web Speech API) und Signaltöne (Web Audio)
 │   ├── a11y/announcer.ts   Ansagen für VoiceOver über eine Live-Region
 │   ├── feedback.ts         Statusmeldungen: Ansage + Ton + optionale Sprachausgabe
@@ -239,6 +244,77 @@ chromium --use-fake-device-for-media-stream --use-fake-ui-for-media-stream \
 
 Damit lassen sich Szenen wie „Blatt ragt links heraus“, „Blatt liegt ruhig“ oder „Blatt entfernt“
 reproduzierbar durchspielen. `--deny-permission-prompts` simuliert einen abgelehnten Kamerazugriff.
+
+## Dokumentverwaltung und Datenhaltung
+
+Alles liegt lokal in IndexedDB (Datenbank `voxdoc`). Es gibt **keine Anmeldung, kein Konto und keine
+automatische Übertragung** – auch keine Synchronisation über iCloud. Daten verlassen das Gerät nur, wenn
+der Nutzer selbst „Teilen“ oder „Sicherung erstellen“ wählt. Im Browser-Test wurde geprüft, dass keine
+Anfrage an einen anderen Server als den eigenen geht (die OCR-Dateien liegen bei der App).
+
+### Gespeicherte Daten
+
+| Speicher | Inhalt |
+| --- | --- |
+| `documents` | Titel, Erstellungs- und Änderungsdatum, Seiten (Originalfotos in Lesereihenfolge), OCR-Rohergebnis je Seite, Lesetext |
+| `positions` | Leseposition je Dokument: Absatz, Zeichenposition, „fertig gelesen“, Prüfsumme des Texts |
+| `drafts` | laufender Scan (aufgenommene Seiten), bis er gespeichert oder verworfen wird |
+
+Die Leseposition liegt getrennt, damit beim Vorlesen nicht jedes Mal die Fotos neu geschrieben werden.
+Ändert sich der Text (Bearbeiten, neue Erkennung, Umsortieren), wird sie verworfen; die Prüfsumme fängt
+auch verspätete Speichervorgänge mit altem Text ab.
+
+Schema-Versionen: 1 (ein Foto je Dokument) → 2 (Seitenliste) → 3 (Lesepositionen, Entwürfe). Ältere
+Datenbanken werden beim Öffnen ohne Datenverlust umgestellt (getestet).
+
+### Aktionen (alle mit VoiceOver bedienbar)
+
+| Aktion | Wo | Rückmeldung |
+| --- | --- | --- |
+| Speichern | Scanner „Dokument speichern“, Start „Fotos aus der Mediathek wählen“ | „Dokument mit 2 Seiten gespeichert.“ |
+| Umbenennen | Dokument › Bearbeiten › „Umbenennen“ (Fokus springt ins Feld, danach zurück) | „Umbenannt in …“ |
+| Suchen | Tab „Suche“ (Titel und Text) | Trefferzahl wird angesagt |
+| Öffnen | Bibliothek, Suche, Start („Zuletzt gescannt“, „Weiterlesen“) | Überschrift des Dokuments erhält den Fokus |
+| Vorlesen / Weiterlesen | Dokument › Vorlesen: „Weiterlesen“ bzw. „Von vorn vorlesen“ | Status „Zuletzt gelesen bis Absatz 2 von 4.“ |
+| Seiten umsortieren | Dokument › Fotos bzw. Scanner: „Seite 2 nach vorn/hinten verschieben“ | „Seite 2 ist jetzt Seite 1.“; Fokus bleibt bei der Seite |
+| Löschen | Dokument › „Dokument löschen“ (mit Rückfrage), Einstellungen › „Alle Dokumente löschen“ | „… gelöscht.“ |
+| Sichern / Wiederherstellen | Einstellungen › Datensicherung | Anzahl und Größe werden angesagt |
+
+Beim Umsortieren wandern Fotos und OCR-Ergebnisse gemeinsam. Der Lesetext wird nur neu zusammengesetzt,
+wenn er nicht selbst bearbeitet wurde – sonst bleibt er unverändert, und VoxDoc sagt das an.
+
+### Speicherfehler und Datenverlust
+
+- **Atomare Schreibvorgänge:** Jede Änderung ist eine Transaktion (`durability: 'strict'`). Schlägt sie
+  fehl, bleibt der vorherige Stand vollständig erhalten; es wird nichts halb gespeichert. Formulare
+  bleiben bei einem Fehler offen, damit die Eingabe nicht verloren geht.
+- **Verständliche Meldungen** (angesagt und sichtbar) für: Speicher voll, Speicher nicht verfügbar
+  (z. B. privates Surfen), Datenbank-Update durch einen anderen Tab (mit „Seite neu laden“), Upgrade durch
+  einen offenen Tab blockiert, Dokument nicht mehr vorhanden, ungültige Sicherungsdatei.
+- **Speicherzustand beim Start:** Ist die Datenbank nicht nutzbar oder der Speicher zu über 90 % belegt,
+  erscheint oben ein Hinweis, der auch angesagt wird.
+- **Löschen durch Safari:** Safari kann Website-Daten nach sieben Tagen ohne Nutzung löschen, wenn die Seite
+  nicht auf dem Home-Bildschirm installiert ist. VoxDoc bittet um dauerhaften Speicher
+  (`navigator.storage.persist()`), zeigt unter *Einstellungen › Speicher*, ob er gewährt wurde, und weist
+  sonst auf Installation und Sicherung hin.
+- **Scan-Entwurf:** Aufgenommene Seiten werden nach jeder Änderung gesichert und beim nächsten Öffnen des
+  Scanners wiederhergestellt („Ein unvollständiger Scan mit 2 Seiten wurde wiederhergestellt.“).
+- **Datensicherung:** eine JSON-Datei mit allen Dokumenten, Fotos (Base64), OCR-Ergebnissen und
+  Lesepositionen. Weitergabe über das iOS-Teilen-Menü (z. B. „In Dateien sichern“) oder als Download.
+  Beim Wiederherstellen werden nur fehlende Dokumente ergänzt, vorhandene bleiben unverändert; eine
+  fehlerhafte Datei wird vollständig abgelehnt.
+
+### Einschränkungen
+
+- **Nicht auf einem echten iPhone getestet** – Chromium mit simulierter Sprachausgabe und simulierten
+  Speicherfehlern. Wie viel Speicher Safari erlaubt und wann es Daten löscht, entscheidet iOS.
+- **Löschen durch iOS lässt sich nicht erkennen:** Wenn Safari die Website-Daten entfernt, sind auch alle
+  Hinweise darauf weg. Schutz bieten nur Installation auf dem Home-Bildschirm und eine Sicherung.
+- **Große Sicherungen:** Die Datei enthält alle Fotos und entsteht im Arbeitsspeicher; bei sehr vielen
+  Dokumenten kann das auf älteren iPhones zu viel sein. Es gibt noch keine Sicherung einzelner Dokumente.
+- Weiterlesen beginnt am Anfang des Satzes, in dem zuletzt gelesen wurde, nicht mitten im Satz.
+- Einzelne Seiten eines gespeicherten Dokuments lassen sich umsortieren, aber noch nicht entfernen oder
+  ergänzen.
 
 ## Texterkennung (OCR)
 
@@ -424,7 +500,8 @@ verringert Überschneidungen so:
 ## Nächste Schritte
 
 - Zuschneiden und Entzerren der Seiten, Schärfeprüfung
-- Seiten zu einem gespeicherten Dokument hinzufügen
+- Seiten zu einem gespeicherten Dokument hinzufügen oder einzeln entfernen
+- Sicherung einzelner Dokumente
 - Automatisierte Ende-zu-Ende- und Barrierefreiheitstests (z. B. Playwright + axe-core) im Repository
 
 ## Lizenz

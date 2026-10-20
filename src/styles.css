@@ -788,3 +788,26 @@ progress {
 .section .button-stack + .hint {
   margin-top: 0.75rem;
 }
+
+.doc-page .button-row {
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  margin-top: 0.5rem;
+}
+
+.storage-banner {
+  margin: 0;
+  padding: 0.75rem var(--space);
+  background: var(--color-surface-raised);
+  border-bottom: 3px solid var(--color-danger);
+}
+
+.storage-banner p {
+  margin: 0 auto 0.5rem;
+  max-width: 40rem;
+  font-weight: 600;
+}
+
+.storage-banner .button {
+  max-width: 40rem;
+  margin-inline: auto;
+}

@@ -1,6 +1,10 @@
 import { announce } from './a11y/announcer.ts';
 import { byId } from './dom.ts';
 import { parseHash, tabFor, type Route } from './router.ts';
+import { status } from './feedback.ts';
+import { onDatabaseLost } from './storage/db.ts';
+import { StorageError, storageErrorMessage, storageErrorMessages } from './storage/errors.ts';
+import { checkStorageHealth } from './storage/health.ts';
 import { getSettings, onSettingsChange, type Theme } from './storage/settings.ts';
 import type { View } from './views/components.ts';
 import { documentView } from './views/document.ts';
@@ -47,7 +51,9 @@ async function render(moveFocus: boolean): Promise<void> {
     view = await loadView(route);
   } catch (error) {
     console.error(error);
-    view = notFoundView('Beim Laden ist ein Fehler aufgetreten. Bitte versuche es erneut.');
+    view = notFoundView(
+      error instanceof StorageError ? storageErrorMessage(error) : 'Beim Laden ist ein Fehler aufgetreten. Bitte versuche es erneut.',
+    );
   }
   // Inzwischen wurde schon weiternavigiert.
   if (id !== renderId) {
@@ -116,9 +122,32 @@ function setupConnectionState(): void {
   update(false);
 }
 
+/** Speicherprobleme sichtbar und hörbar machen, bevor Daten verloren gehen. */
+function setupStorageHealth(): void {
+  const banner = byId('storage-banner');
+  const text = byId('storage-banner-text');
+  const reload = byId<HTMLButtonElement>('storage-banner-reload');
+  reload.addEventListener('click', () => window.location.reload());
+  const show = (message: string, withReload: boolean): void => {
+    text.textContent = message;
+    reload.hidden = !withReload;
+    banner.hidden = false;
+    status(message, 'error');
+  };
+  onDatabaseLost(() => show(storageErrorMessages.outdated, true));
+  void checkStorageHealth().then((health) => {
+    if (health.error) {
+      show(health.error, health.error === storageErrorMessages.blocked || health.error === storageErrorMessages.outdated);
+    } else if (health.nearlyFull) {
+      show('Der Speicher ist fast voll. Neue Scans können fehlschlagen. Lösche nicht mehr benötigte Dokumente oder erstelle eine Sicherung.', false);
+    }
+  });
+}
+
 export function startApp(): void {
   setupTheme();
   setupConnectionState();
+  setupStorageHealth();
   window.addEventListener('hashchange', () => void render(true));
   void render(false);
 }

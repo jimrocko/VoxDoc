@@ -2,7 +2,9 @@ import { h, type Child } from '../dom.ts';
 import { spokenDate } from '../format.ts';
 import { href } from '../router.ts';
 import { importFromPhotos } from '../scan/scan.ts';
+import { splitParagraphs } from '../reader/text.ts';
 import type { VoxDocument } from '../storage/documents.ts';
+import { hashText, type ReadingPosition } from '../storage/positions.ts';
 
 export interface View {
   /** Erscheint im Fenstertitel. */
@@ -42,14 +44,28 @@ const chevron = (): SVGElement => {
   return svg;
 };
 
-export function documentMeta(doc: VoxDocument): string {
+/** Lesefortschritt, sofern die Position noch zum Text passt. */
+export function readingProgress(doc: VoxDocument, position: ReadingPosition | undefined): string | null {
+  if (!position || position.textHash !== hashText(doc.text)) {
+    return null;
+  }
+  if (position.finished) {
+    return 'ganz vorgelesen';
+  }
+  const total = splitParagraphs(doc.text).length;
+  return position.paragraph > 0 || position.offset > 0 ? `weiterlesen ab Absatz ${position.paragraph + 1} von ${total}` : null;
+}
+
+export function documentMeta(doc: VoxDocument, position?: ReadingPosition): string {
   const pages = doc.pages.length > 1 ? ` · ${doc.pages.length} Seiten` : '';
-  return `${spokenDate(doc.createdAt)}${pages} · ${doc.text.trim() ? 'mit Text' : 'noch ohne Text'}`;
+  const progress = readingProgress(doc, position);
+  return `${spokenDate(doc.createdAt)}${pages} · ${doc.text.trim() ? 'mit Text' : 'noch ohne Text'}${progress ? ` · ${progress}` : ''}`;
 }
 
 export function documentList(
   documents: readonly VoxDocument[],
-  extra?: (doc: VoxDocument) => Child,
+  extra?: ((doc: VoxDocument) => Child) | null,
+  positions?: ReadonlyMap<string, ReadingPosition>,
 ): HTMLUListElement {
   return h(
     'ul',
@@ -65,7 +81,7 @@ export function documentList(
             'span',
             { class: 'doc-link-body' },
             h('span', { class: 'doc-title' }, doc.title),
-            h('span', { class: 'doc-meta' }, documentMeta(doc)),
+            h('span', { class: 'doc-meta' }, documentMeta(doc, positions?.get(doc.id))),
             extra?.(doc),
           ),
           chevron(),

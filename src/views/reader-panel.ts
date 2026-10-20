@@ -2,7 +2,7 @@ import { selectedVoice, setReaderActive, speechSupported } from '../audio/speech
 import { playTone } from '../audio/tones.ts';
 import { h } from '../dom.ts';
 import { status } from '../feedback.ts';
-import { Reader, rateLabel, type ReaderSnapshot } from '../reader/reader.ts';
+import { Reader, rateLabel, type ReaderPosition, type ReaderSnapshot } from '../reader/reader.ts';
 import { getSettings, updateSettings } from '../storage/settings.ts';
 import { section } from './components.ts';
 
@@ -20,8 +20,14 @@ const toggleLabels: Record<ReaderSnapshot['state'], string> = {
   finished: 'Erneut vorlesen',
 };
 
-function statusText({ state, paragraph, total }: ReaderSnapshot): string {
+function statusText({ state, paragraph, total, resumable }: ReaderSnapshot, finishedBefore = false): string {
   const position = `Absatz ${paragraph + 1} von ${total}`;
+  if (state === 'idle' && resumable) {
+    return `Zuletzt gelesen bis ${position}.`;
+  }
+  if (state === 'idle' && finishedBefore) {
+    return total === 1 ? 'Bereits ganz vorgelesen. 1 Absatz.' : `Bereits ganz vorgelesen. ${total} Absätze.`;
+  }
   switch (state) {
     case 'idle':
       return total === 1 ? 'Bereit. 1 Absatz.' : `Bereit. ${total} Absätze.`;
@@ -55,7 +61,17 @@ const icons = {
  * Ton oder aus der Vorlesestimme selbst – nie über die Live-Region, damit
  * VoiceOver nicht gleichzeitig spricht.
  */
-export function readerPanel(texts: readonly string[], paragraphElements: readonly HTMLElement[]): ReaderPanel {
+export interface SavedPosition {
+  /** Zuletzt gespeicherte Position, `null` wenn noch nie gelesen. */
+  position: ReaderPosition | null;
+  save: (position: ReaderPosition) => void;
+}
+
+export function readerPanel(
+  texts: readonly string[],
+  paragraphElements: readonly HTMLElement[],
+  saved: SavedPosition = { position: null, save: () => {} },
+): ReaderPanel {
   if (!speechSupported) {
     return {
       element: section(
@@ -90,12 +106,20 @@ export function readerPanel(texts: readonly string[], paragraphElements: readonl
     }
   };
 
+  let finishedBefore = saved.position?.finished ?? false;
+  const restartButton = h('button', { type: 'button', class: 'button button-secondary', hidden: true }, 'Von vorn vorlesen');
+
   const reader = new Reader(texts, {
     synth: window.speechSynthesis,
     createUtterance: (text) => new SpeechSynthesisUtterance(text),
     voice: () => selectedVoice(getSettings().voiceURI),
     rate: getSettings().speechRate,
     announceParagraphs: getSettings().announceParagraphs,
+    start: saved.position && !saved.position.finished ? saved.position : null,
+    onPosition: (position) => {
+      finishedBefore = position.finished;
+      saved.save(position);
+    },
     onChange: render,
     onFinish: () => status('Ende des Dokuments.', 'success'),
     onError: (message) => status(message, 'error'),
@@ -112,8 +136,9 @@ export function readerPanel(texts: readonly string[], paragraphElements: readonl
   });
 
   function render(snapshot: ReaderSnapshot): void {
-    toggleButton.textContent = toggleLabels[snapshot.state];
-    statusLine.textContent = statusText(snapshot);
+    toggleButton.textContent = snapshot.resumable ? 'Weiterlesen' : toggleLabels[snapshot.state];
+    statusLine.textContent = statusText(snapshot, finishedBefore);
+    restartButton.hidden = !(snapshot.resumable || snapshot.state === 'paused');
     rateDisplay.textContent = `Tempo: ${rateLabel(snapshot.rate)}`;
     stopButton.hidden = snapshot.state === 'idle';
     setReaderActive(snapshot.state === 'playing');
@@ -128,6 +153,12 @@ export function readerPanel(texts: readonly string[], paragraphElements: readonl
     if (wasPlaying) {
       status(statusText(reader.snapshot));
     }
+  });
+
+  restartButton.addEventListener('click', () => {
+    reader.restart();
+    // Der Knopf verschwindet beim Vorlesen – Fokus auf den Hauptknopf („Pause“).
+    toggleButton.focus();
   });
 
   stopButton.addEventListener('click', () => {
@@ -195,6 +226,7 @@ export function readerPanel(texts: readonly string[], paragraphElements: readonl
           'Schneller',
         ),
       ),
+      restartButton,
       stopButton,
     ),
     h(

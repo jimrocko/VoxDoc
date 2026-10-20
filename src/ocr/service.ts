@@ -1,6 +1,7 @@
 import { status, type StatusKind } from '../feedback.ts';
 import { countLabel } from '../format.ts';
 import { href } from '../router.ts';
+import { classifyStorageError, StorageError, storageErrorMessage } from '../storage/errors.ts';
 import {
   getDocument,
   updateDocument,
@@ -216,7 +217,13 @@ export class OcrService {
         throw new OcrError('noPages');
       }
       const untouched = !current.text.trim() || (current.ocr !== null && current.text === textFromOcr(current.ocr));
-      const updated = await this.deps.updateDocument(docId, untouched ? { ocr, text: textFromOcr(ocr) } : { ocr });
+      let updated: VoxDocument;
+      try {
+        updated = await this.deps.updateDocument(docId, untouched ? { ocr, text: textFromOcr(ocr) } : { ocr });
+      } catch (error) {
+        // Speicherfehler (z. B. Speicher voll) verständlich als solche melden.
+        throw error instanceof StorageError ? error : new StorageError(classifyStorageError(error), error);
+      }
       this.states.delete(docId);
       this.deps.announce(...resultMessage(this.label(updated), ocr, untouched));
       this.emit({ type: 'done', docId, doc: updated, textReplaced: untouched });
@@ -231,7 +238,7 @@ export class OcrService {
         // Nach einem Absturz ist die Engine nicht mehr verlässlich.
         await this.dropEngine();
       }
-      const message = ocrErrorMessages[code];
+      const message = error instanceof StorageError ? `Der erkannte Text konnte nicht gespeichert werden. ${storageErrorMessage(error)}` : ocrErrorMessages[code];
       this.states.delete(docId);
       this.errors.set(docId, message);
       this.deps.announce(`${doc ? this.label(doc) : ''}${message}`, 'error');

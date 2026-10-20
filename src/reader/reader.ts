@@ -18,6 +18,15 @@ export interface ReaderSnapshot {
   paragraph: number;
   total: number;
   rate: number;
+  /** Ruht, steht aber nicht am Anfang – „Weiterlesen“ ist möglich. */
+  resumable: boolean;
+}
+
+/** Leseposition zum Speichern: Absatz und Zeichenposition darin. */
+export interface ReaderPosition {
+  paragraph: number;
+  offset: number;
+  finished: boolean;
 }
 
 export interface ReaderOptions {
@@ -32,6 +41,10 @@ export interface ReaderOptions {
   onError?: (message: string) => void;
   /** Vor dem ersten bzw. nach dem letzten Absatz gibt es nichts mehr. */
   onEdge?: (edge: 'first' | 'last') => void;
+  /** Gespeicherte Position, an der „Weiterlesen“ beginnt. */
+  start?: { paragraph: number; offset: number } | null;
+  /** Meldet die Position bei Pause, Absatzwechsel, Ende und Verlassen – zum Speichern. */
+  onPosition?: (position: ReaderPosition) => void;
 }
 
 /** Bis dahin muss `start` kommen, sonst wird es erneut versucht. */
@@ -80,6 +93,13 @@ export class Reader {
     private readonly options: ReaderOptions,
   ) {
     this.chunks = paragraphs.map((text) => splitChunks(text)).filter((chunks) => chunks.length > 0);
+    const start = options.start;
+    if (start && start.paragraph >= 0 && start.paragraph < this.chunks.length) {
+      // Am Anfang des Satzes weiterlesen, in dem zuletzt gelesen wurde – das ist nach einer Pause verständlicher.
+      const chunks = this.chunks[start.paragraph]!;
+      this.paragraph = start.paragraph;
+      this.chunk = Math.max(0, chunks.findLastIndex((chunk) => chunk.start <= start.offset));
+    }
     this.rate = clampRate(options.rate);
   }
 
@@ -89,7 +109,31 @@ export class Reader {
   }
 
   get snapshot(): ReaderSnapshot {
-    return { state: this.state, paragraph: this.paragraph, total: this.chunks.length, rate: this.rate };
+    return {
+      state: this.state,
+      paragraph: this.paragraph,
+      total: this.chunks.length,
+      rate: this.rate,
+      resumable: this.state === 'idle' && (this.paragraph > 0 || this.chunk > 0 || this.offset > 0),
+    };
+  }
+
+  get position(): ReaderPosition {
+    const chunk = this.chunks[this.paragraph]?.[this.chunk];
+    return {
+      paragraph: this.paragraph,
+      offset: (chunk?.start ?? 0) + this.offset,
+      finished: this.state === 'finished',
+    };
+  }
+
+  /** Von vorn beginnen, egal wo gerade gelesen wird. */
+  restart(): void {
+    this.jumpTo(0);
+  }
+
+  private reportPosition(): void {
+    this.options.onPosition?.(this.position);
   }
 
   /** Startet, setzt nach einer Pause fort oder beginnt nach dem Ende von vorn. */
@@ -109,6 +153,7 @@ export class Reader {
     }
     this.halt();
     this.setState('paused');
+    this.reportPosition();
   }
 
   toggle(): void {
@@ -124,6 +169,7 @@ export class Reader {
     this.halt();
     this.moveTo(0);
     this.setState('idle');
+    this.reportPosition();
   }
 
   next(): void {
@@ -157,6 +203,9 @@ export class Reader {
   }
 
   destroy(): void {
+    if (this.state === 'playing' || this.state === 'paused') {
+      this.reportPosition();
+    }
     this.halt();
     this.state = 'idle';
   }
@@ -168,6 +217,7 @@ export class Reader {
       return;
     }
     this.moveTo(paragraph);
+    this.reportPosition();
     this.retried = false;
     this.speakCurrent(this.options.announceParagraphs ? `Absatz ${paragraph + 1} von ${this.chunks.length}.` : '');
   }
@@ -303,6 +353,7 @@ export class Reader {
     } else if (this.paragraph + 1 < this.chunks.length) {
       this.moveTo(this.paragraph + 1);
       this.emit();
+      this.reportPosition();
     } else {
       this.finish();
       return;
@@ -315,6 +366,7 @@ export class Reader {
     this.halt();
     this.setState('finished');
     this.options.onFinish?.();
+    this.reportPosition();
   }
 
   private fail(prefix: string): void {

@@ -290,3 +290,45 @@ describe('Reader', () => {
     expect(synth.spoken).toHaveLength(0);
   });
 });
+
+describe('Reader: Leseposition', () => {
+  it('beginnt an der gespeicherten Position am Satzanfang', () => {
+    const long = 'Erster Satz im Absatz. Zweiter Satz ist ganz ausführlich und lang genug, damit er ein eigenes Stück wird und nicht mit dem ersten zusammengefasst werden kann, weil er so viele Wörter enthält und weiter geht und immer noch weiter geht, bis er endlich wirklich endet.';
+    const reader = createReader(['Eins.', long], { start: { paragraph: 1, offset: 80 } });
+    expect(reader.snapshot).toMatchObject({ state: 'idle', paragraph: 1, resumable: true });
+    reader.play();
+    expect(reader.currentText).toMatch(/^Zweiter Satz/);
+  });
+
+  it('ignoriert ungültige Positionen', () => {
+    const reader = createReader(['Eins.'], { start: { paragraph: 5, offset: 0 } });
+    expect(reader.snapshot).toMatchObject({ paragraph: 0, resumable: false });
+  });
+
+  it('meldet die Position bei Pause, Absatzwechsel, Ende und Verlassen', () => {
+    const positions: unknown[] = [];
+    const reader = createReader(['Eins zwei drei.', 'Vier.'], { onPosition: (p) => positions.push(p) });
+    reader.play();
+    synth.boundary(5);
+    reader.pause();
+    expect(positions.at(-1)).toEqual({ paragraph: 0, offset: 5, finished: false });
+    reader.play();
+    synth.finish();
+    expect(positions.at(-1)).toEqual({ paragraph: 1, offset: 0, finished: false });
+    synth.finish();
+    expect(positions.at(-1)).toEqual({ paragraph: 1, offset: 0, finished: true });
+
+    const other = createReader(['A.', 'B.'], { onPosition: (p) => positions.push(p) });
+    other.play();
+    synth.finish();
+    const count = positions.length;
+    other.destroy();
+    expect(positions.length).toBe(count + 1);
+  });
+
+  it('beginnt mit restart von vorn', () => {
+    const reader = createReader(['Eins.', 'Zwei.'], { start: { paragraph: 1, offset: 0 }, announceParagraphs: false });
+    reader.restart();
+    expect(reader.currentText).toBe('Eins.');
+  });
+});

@@ -75,6 +75,7 @@ export function helpView(): View {
           '„Vorlesen“ startet am Anfang. Während des Vorlesens heißt der Knopf „Pause“, danach „Fortsetzen“ – es geht beim zuletzt gesprochenen Wort weiter.',
           '„Vorheriger Absatz“, „Absatz wiederholen“ und „Nächster Absatz“ lesen sofort den gewählten Absatz vor. Vorher wird „Absatz 3 von 5“ angesagt; das lässt sich in den Einstellungen ausschalten.',
           '„Langsamer“ und „Schneller“ ändern das Tempo in kleinen Schritten. Beim Vorlesen sagt die Stimme das neue Tempo an und liest an derselben Stelle weiter.',
+          'VoxDoc merkt sich, wo du aufgehört hast. Öffnest du das Dokument wieder, heißt der Knopf „Weiterlesen“ und beginnt am Anfang des Satzes, bei dem du warst. „Von vorn vorlesen“ startet am Anfang.',
           '„Vorlesen beenden“ hält an; der nächste Start beginnt wieder am Anfang.',
           'Am Ende des Dokuments hörst du einen aufsteigenden Ton. Ein tiefer Ton bedeutet: Es gibt keinen weiteren Absatz oder das Tempo ist am Anschlag.',
         ),
@@ -96,7 +97,10 @@ export function helpView(): View {
         list(
           'Die Bibliothek zeigt alle Dokumente. Du kannst nach Datum oder Name sortieren.',
           'Die Suche findet Wörter im Namen und im Text eines Dokuments.',
-          'Vergib aussagekräftige Namen, zum Beispiel „Stromrechnung Oktober“.',
+          'Vergib aussagekräftige Namen, zum Beispiel „Stromrechnung Oktober“. „Umbenennen“ findest du im Dokument unter „Bearbeiten“.',
+          'In der Liste steht bei angefangenen Dokumenten „weiterlesen ab Absatz …“. Das zuletzt angefangene Dokument erscheint auf der Startseite unter „Weiterlesen“.',
+          'Die Reihenfolge der Seiten änderst du im Dokument unter „Fotos“ mit „nach vorn verschieben“ und „nach hinten verschieben“. Der erkannte Text wird mit umsortiert, solange du ihn nicht selbst bearbeitet hast.',
+          '„Dokument löschen“ steht am Ende eines Dokuments und fragt vorher nach.',
         ),
       ),
       section(
@@ -129,12 +133,23 @@ export function helpView(): View {
         ),
       ),
       section(
+        'help-backup',
+        'Datenverlust vermeiden',
+        list(
+          'Safari kann Daten von Websites löschen, die sieben Tage lang nicht geöffnet wurden. Füge VoxDoc deshalb zum Home-Bildschirm hinzu.',
+          'Löschst du VoxDoc vom Home-Bildschirm oder die Website-Daten in Safari, sind auch die Dokumente weg. Erstelle vorher unter Einstellungen › Datensicherung eine Sicherung und speichere sie zum Beispiel in der Dateien-App.',
+          'Mit „Sicherung wiederherstellen“ holst du die Dokumente zurück, auch auf einem neuen iPhone. Vorhandene Dokumente werden dabei nicht überschrieben.',
+          'Ein angefangener Scan wird laufend gesichert. Wird die App unterbrochen, sind die aufgenommenen Seiten beim nächsten Öffnen des Scanners wieder da.',
+          'Ist der Speicher voll, sagt VoxDoc das an und speichert nichts halb. Bereits gespeicherte Dokumente bleiben erhalten.',
+        ),
+      ),
+      section(
         'help-privacy',
         'Datenschutz',
         h(
           'p',
           null,
-          'Fotos und Texte werden nur auf deinem iPhone gespeichert und nicht an einen Server übertragen. Wenn du VoxDoc vom Home-Bildschirm löschst, werden auch die Dokumente gelöscht.',
+          'VoxDoc braucht keine Anmeldung. Fotos, Texte und Lesepositionen werden nur auf deinem iPhone gespeichert und nie automatisch übertragen. Nur wenn du selbst „Teilen“ oder „Sicherung erstellen“ wählst, gibst du eine Datei weiter.',
         ),
       ),
     ),

@@ -4,6 +4,7 @@ import { countLabel, defaultTitle } from '../format.ts';
 import { navigate } from '../router.ts';
 import { ocrService } from '../ocr/service.ts';
 import { createDocument, requestPersistentStorage } from '../storage/documents.ts';
+import { storageErrorMessage } from '../storage/errors.ts';
 import { getSettings } from '../storage/settings.ts';
 import { prepareImage } from './image.ts';
 
@@ -78,7 +79,8 @@ export function importFromPhotos(): void {
     try {
       const { pages, failed } = await prepareFiles(files);
       if (pages.length === 0) {
-        throw new Error('Keine lesbaren Bilder');
+        status('Die gewählten Fotos konnten nicht gelesen werden. Wähle andere Bilder.', 'error');
+        return;
       }
       await saveScannedDocument(pages);
       if (failed > 0) {
@@ -86,7 +88,7 @@ export function importFromPhotos(): void {
       }
     } catch (error) {
       console.error(error);
-      status('Die Fotos konnten nicht gespeichert werden. Bitte versuche es erneut.', 'error');
+      status(`Die Fotos konnten nicht gespeichert werden. ${storageErrorMessage(error)}`, 'error');
     } finally {
       importing = false;
     }
