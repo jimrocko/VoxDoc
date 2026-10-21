@@ -7,6 +7,21 @@ den Text erkennen und vorlesen.
 > **Status:** Scannen mit Live-Kamera und Sprachführung, lokale Texterkennung (Deutsch),
 > Bibliothek, Suche, Vorlesen, Einstellungen und Hilfe funktionieren.
 
+<a href="https://raw.githack.com/jimrocko/VoxDoc/main/app/index.html"><img src="https://img.shields.io/badge/%E2%96%B6%20VoxDoc%20starten-auf%20dem%20iPhone%20in%20Safari%20%C3%B6ffnen-2563eb?style=for-the-badge" alt="VoxDoc starten" height="44"></a>
+
+**Auf dem iPhone:** Knopf antippen (oder `https://raw.githack.com/jimrocko/VoxDoc/main/app/index.html`
+in Safari öffnen). Optional „Teilen › Zum Home-Bildschirm“. Nach dem ersten Laden und der ersten
+Texterkennung funktioniert VoxDoc auch ohne Internet.
+
+> **Hinweise zu dieser Adresse:** raw.githack.com ist ein kostenloser Dienst, der Dateien aus
+> öffentlichen GitHub-Repositories ausliefert. Alle Seiten dort teilen sich eine Herkunft (Origin) –
+> andere Webseiten auf raw.githack.com könnten technisch auf die lokal gespeicherten Dokumente
+> zugreifen. Für vertrauliche Unterlagen ist ein eigenes Hosting mit eigener Adresse besser.
+> Die Spracherkennung funktioniert nur im Safari-Tab, nicht in der Home-Bildschirm-App.
+>
+> Der Ordner `app/` enthält die gebaute App. Nach Änderungen am Code: `npm run build:app`, dann
+> `app/` mit committen.
+
 ## Funktionen
 
 - **Dokument scannen** – Live-Kamera mit Sprachführung und automatischer Auslösung, mehrere
@@ -82,6 +97,7 @@ Anschließend in Safari über „Teilen“ → „Zum Home-Bildschirm“ install
 | `npm run dev`           | Entwicklungsserver (HTTP, im LAN erreichbar)         |
 | `npm run dev:https`     | Entwicklungsserver mit selbstsigniertem Zertifikat   |
 | `npm run build`         | Typprüfung und Produktions-Build nach `dist/`        |
+| `npm run build:app`     | Build mit relativen Pfaden nach `app/` (für raw.githack.com) |
 | `npm run preview`       | Produktions-Build lokal ausliefern                   |
 | `npm run preview:https` | Produktions-Build über HTTPS ausliefern              |
 | `npm run typecheck`     | Nur TypeScript-Typprüfung                            |

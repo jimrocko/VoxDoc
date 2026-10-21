@@ -11,6 +11,7 @@
     "dev": "vite",
     "dev:https": "vite --mode https",
     "build": "npm run typecheck && vite build",
+    "build:app": "npm run typecheck && vite build --base ./ --outDir app --emptyOutDir",
     "preview": "vite preview",
     "preview:https": "vite preview --mode https",
     "typecheck": "tsc --noEmit",

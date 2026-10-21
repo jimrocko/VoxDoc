@@ -13,15 +13,16 @@ export default defineConfig(({ mode }) => {
       injectRegister: false,
       includeAssets: ['icons/icon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
-        id: '/',
+        // Relativ, damit die App auch in einem Unterordner läuft (z. B. raw.githack.com).
+        id: './',
         name: 'VoxDoc – Dokumente vorlesen',
         short_name: 'VoxDoc',
         description:
           'Barrierefreie Dokumentenerkennung für blinde und sehbehinderte Menschen.',
         lang: 'de',
         dir: 'ltr',
-        start_url: '/',
-        scope: '/',
+        start_url: './',
+        scope: './',
         display: 'standalone',
         orientation: 'portrait',
         background_color: '#ffffff',
