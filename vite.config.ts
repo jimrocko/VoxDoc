@@ -14,6 +14,7 @@ export default defineConfig(({ mode }) => {
       // .json statt .webmanifest: raw.githack.com leitet unbekannte Endungen auf eine andere Herkunft um.
       manifestFilename: 'manifest.json',
       includeAssets: ['icons/icon.svg'],
+      includeManifestIcons: false,
       manifest: {
         // Relativ, damit die App auch in einem Unterordner läuft (z. B. raw.githack.com).
         id: './',
