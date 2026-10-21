@@ -13,7 +13,7 @@ export default defineConfig(({ mode }) => {
       injectRegister: false,
       // .json statt .webmanifest: raw.githack.com leitet unbekannte Endungen auf eine andere Herkunft um.
       manifestFilename: 'manifest.json',
-      includeAssets: ['icons/icon.svg', 'icons/apple-touch-icon.png'],
+      includeAssets: ['icons/icon.svg'],
       manifest: {
         // Relativ, damit die App auch in einem Unterordner läuft (z. B. raw.githack.com).
         id: './',
@@ -42,7 +42,8 @@ export default defineConfig(({ mode }) => {
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,json,ttf}'],
+        // Ohne PNG-Symbole: raw.githack.com leitet Binärdateien auf eine andere Herkunft um, daran scheitert das Vorab-Speichern. Offline werden sie nicht gebraucht.
+        globPatterns: ['**/*.{js,css,html,svg,json,ttf}'],
         // Die OCR-Dateien (etwa 5 MB) lädt und speichert die App selbst bei Bedarf (src/ocr/assets.ts).
         globIgnores: ['**/worker.min-*.js', '**/tesseract-core-*.js', '**/*.traineddata*'],
         navigateFallback: 'index.html',
