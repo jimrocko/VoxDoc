@@ -132,7 +132,7 @@ await page.goto(URL + '#/einstellungen'); await page.waitForSelector('#rate-inpu
 ok(/^(normal|\d,\d-fach)$/.test(await page.getAttribute('#rate-input', 'aria-valuetext')), 'Sprechtempo-Regler hat sprechenden Wert');
 
 console.log('--- Manifest und Icons');
-const manifest = await (await page.request.get(URL + 'manifest.webmanifest')).json();
+const manifest = await (await page.request.get(URL + 'manifest.json')).json();
 ok(manifest.lang === 'de' && manifest.display === 'standalone' && manifest.icons.length >= 3, 'Manifest: Sprache, Anzeige, Icons');
 for (const icon of [...manifest.icons.map((i) => i.src), 'icons/apple-touch-icon.png']) {
   const r = await page.request.get(URL + icon);

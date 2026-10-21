@@ -11,6 +11,8 @@ export default defineConfig(({ mode }) => {
       // Nicht automatisch neu laden: Updates erst nach Bestätigung (WCAG 3.2.5), sonst gingen Eingaben verloren.
       registerType: 'prompt',
       injectRegister: false,
+      // .json statt .webmanifest: raw.githack.com leitet unbekannte Endungen auf eine andere Herkunft um.
+      manifestFilename: 'manifest.json',
       includeAssets: ['icons/icon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
         // Relativ, damit die App auch in einem Unterordner läuft (z. B. raw.githack.com).
@@ -40,7 +42,7 @@ export default defineConfig(({ mode }) => {
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,webmanifest,ttf}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,json,ttf}'],
         // Die OCR-Dateien (etwa 5 MB) lädt und speichert die App selbst bei Bedarf (src/ocr/assets.ts).
         globIgnores: ['**/worker.min-*.js', '**/tesseract-core-*.js', '**/*.traineddata*'],
         navigateFallback: 'index.html',
